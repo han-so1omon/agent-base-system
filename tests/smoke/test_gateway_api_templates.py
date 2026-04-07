@@ -34,4 +34,4 @@ def test_base_agent_system_chart_uses_gateway_api_templates() -> None:
     assert "listenerName: web" in kind_text
 
     ingress = Path("infra/k8s/base/ingress.yaml")
-    assert ingress.exists(), "legacy ingress manifest may still exist outside Helm path"
+    assert not ingress.exists(), "legacy ingress manifest should be removed after Helmfile migration"

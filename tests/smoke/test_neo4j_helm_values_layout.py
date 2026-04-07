@@ -5,7 +5,7 @@ def test_neo4j_values_are_split_by_common_and_environment() -> None:
     common = Path("infra/helm/neo4j/values-common.yaml")
     kind = Path("infra/helm/neo4j/values-kind.yaml")
     k3s = Path("infra/helm/neo4j/values-k3s.yaml")
-    helmfile = Path("helmfile.yaml")
+    helmfile = Path("helmfile.yaml.gotmpl")
 
     assert common.exists()
     assert kind.exists()
