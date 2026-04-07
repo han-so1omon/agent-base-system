@@ -12,6 +12,20 @@ def _base_env(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+def _stub_checkpointer(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _CheckpointerHolder:
+        def open(self) -> object | None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "base_agent_system.runtime_services.build_postgres_checkpointer",
+        lambda postgres_uri: _CheckpointerHolder(),
+    )
+
+
 def test_app_module_imports_without_required_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -25,6 +39,7 @@ def test_app_module_imports_without_required_config(
 
 def test_live_returns_ok(monkeypatch: pytest.MonkeyPatch) -> None:
     _base_env(monkeypatch)
+    _stub_checkpointer(monkeypatch)
 
     from base_agent_system.api.app import create_app
 
@@ -39,6 +54,7 @@ def test_ready_returns_service_unavailable_when_dependencies_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _base_env(monkeypatch)
+    _stub_checkpointer(monkeypatch)
 
     from base_agent_system.api.app import create_app
 
@@ -58,10 +74,17 @@ def test_ready_returns_ok_when_dependencies_initialize(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _base_env(monkeypatch)
+    _stub_checkpointer(monkeypatch)
 
     from base_agent_system.api.app import create_app
 
-    with TestClient(create_app(memory_backend=_InMemoryGraphitiBackend())) as client:
+    app = create_app(memory_backend=_InMemoryGraphitiBackend())
+
+    with TestClient(app) as client:
+        client.app.state.runtime_state.readiness_checks = lambda: {
+            "neo4j": True,
+            "postgres": True,
+        }
         response = client.get("/ready")
 
     assert response.status_code == 200
@@ -72,6 +95,7 @@ def test_ready_returns_service_unavailable_when_backend_checks_fail(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _base_env(monkeypatch)
+    _stub_checkpointer(monkeypatch)
 
     from base_agent_system.api.app import create_app
 
@@ -105,6 +129,7 @@ def test_create_app_accepts_explicit_in_memory_backend_for_tests(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _base_env(monkeypatch)
+    _stub_checkpointer(monkeypatch)
 
     from base_agent_system.api.app import create_app
 

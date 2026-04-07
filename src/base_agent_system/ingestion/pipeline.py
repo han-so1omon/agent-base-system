@@ -4,8 +4,8 @@ from pathlib import Path
 
 from llama_index.core.node_parser import SentenceSplitter
 
-from base_agent_system.ingestion.markdown_loader import load_markdown_documents
-from base_agent_system.ingestion.models import IngestionResult, MarkdownChunk, MarkdownDocument
+from base_agent_system.ingestion.connectors import MarkdownDirectoryConnector
+from base_agent_system.ingestion.models import IngestionDocument, IngestionResult, MarkdownChunk
 
 
 def ingest_markdown_directory(
@@ -14,13 +14,23 @@ def ingest_markdown_directory(
     chunk_size: int,
     chunk_overlap: int,
 ) -> IngestionResult:
-    documents = load_markdown_documents(directory)
+    documents = MarkdownDirectoryConnector().load(directory)
+    chunks = _chunk_documents(documents, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    return IngestionResult(documents=documents, chunks=chunks)
+
+
+def ingest_documents(
+    documents: list[IngestionDocument],
+    *,
+    chunk_size: int,
+    chunk_overlap: int,
+) -> IngestionResult:
     chunks = _chunk_documents(documents, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
     return IngestionResult(documents=documents, chunks=chunks)
 
 
 def _chunk_documents(
-    documents: list[MarkdownDocument],
+    documents: list[IngestionDocument],
     *,
     chunk_size: int,
     chunk_overlap: int,

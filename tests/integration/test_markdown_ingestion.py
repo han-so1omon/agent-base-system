@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from base_agent_system.ingestion.connectors import MarkdownDirectoryConnector
 from base_agent_system.ingestion.pipeline import ingest_markdown_directory
 
 
@@ -44,3 +45,22 @@ def test_ingest_markdown_directory_loads_chunks_with_metadata(tmp_path: Path) ->
         "discovered, normalized, and chunked" in chunk.text
         for chunk in result.chunks
     )
+
+
+def test_markdown_directory_connector_loads_documents(tmp_path: Path) -> None:
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+    markdown_file = docs_dir / "example.md"
+    markdown_file.write_text(
+        "# Connector Example\n\n"
+        "Connector-based ingestion should still load markdown documents.\n",
+        encoding="utf-8",
+    )
+
+    connector = MarkdownDirectoryConnector()
+
+    documents = connector.load(docs_dir)
+
+    assert len(documents) == 1
+    assert documents[0].source_path == markdown_file
+    assert documents[0].title == "Connector Example"

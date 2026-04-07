@@ -2,7 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Any, TypedDict
+from collections.abc import Callable, Sequence
+from typing import Any, Literal, TypedDict
+
+
+WorkflowHook = Callable[["WorkflowState"], "WorkflowState"]
+WorkflowHookStage = Literal[
+    "before_retrieval",
+    "after_retrieval",
+    "before_answer_synthesis",
+    "after_answer_synthesis",
+]
+WorkflowHooks = dict[WorkflowHookStage, Sequence[WorkflowHook]]
 
 
 class WorkflowState(TypedDict, total=False):

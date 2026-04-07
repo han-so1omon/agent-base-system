@@ -1,5 +1,19 @@
 # Troubleshooting
 
+## Extension registration does not apply
+
+The extension model is explicit registration only. If a workflow, ingestion, retrieval, API, or CLI customization is missing at runtime, check the registry construction path first.
+
+Common causes:
+- the custom code never calls `create_default_registry()` and then registers the extra seam
+- the app or CLI is still using the default registry instead of the customized one
+- a custom workflow expects arbitrary graph mutation, which is not supported; only constrained workflow hooks are supported
+
+Current non-goals remain:
+- no auto-discovery
+- no out-of-process plugins
+- no arbitrary workflow graph mutation
+
 ## `/ready` returns `503`
 
 Check that Neo4j and Postgres environment variables are present and the backing services are reachable.

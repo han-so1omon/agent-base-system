@@ -64,6 +64,27 @@ def test_workflow_passes_checkpointer_to_langgraph_compile() -> None:
     assert compile_calls == [SimpleNamespace(name="checkpoint")]
 
 
+def test_workflow_hook_nodes_keep_checkpointer_compile_path_unchanged() -> None:
+    compile_calls: list[object] = []
+
+    app = build_workflow(
+        settings=_settings(),
+        retrieval_service=_StubRetrievalService(),
+        memory_service=_StubMemoryService(),
+        checkpointer=SimpleNamespace(name="checkpoint"),
+        workflow_hooks={
+            "before_retrieval": (lambda state: {},),
+            "after_retrieval": (lambda state: {},),
+            "before_answer_synthesis": (lambda state: {},),
+            "after_answer_synthesis": (lambda state: {},),
+        },
+        state_graph_factory=lambda state_type: _FakeStateGraph(compile_calls),
+    )
+
+    assert app == "compiled-app"
+    assert compile_calls == [SimpleNamespace(name="checkpoint")]
+
+
 class _FakePostgresSaver:
     def __init__(self, connection_uri: str) -> None:
         self.connection_uri = connection_uri

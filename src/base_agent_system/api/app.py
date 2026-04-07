@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
 
 from fastapi import FastAPI
 
@@ -10,23 +11,27 @@ from base_agent_system.dependencies import (
     initialize_app_state,
     shutdown_app_state,
 )
+from base_agent_system.extensions.registry import create_default_registry
 from base_agent_system.memory.graphiti_service import GraphitiMemoryBackend
 
-from .routes_health import router as health_router
-from .routes_ingest import router as ingest_router
-from .routes_query import router as query_router
+if TYPE_CHECKING:
+    from base_agent_system.extensions.registry import ExtensionRegistry
 
 
 def create_app(
     *,
     initialize_dependencies: bool = True,
     memory_backend: GraphitiMemoryBackend | None = None,
+    extension_registry: "ExtensionRegistry | None" = None,
 ) -> FastAPI:
     runtime_state = object()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        app.state.runtime_state = create_app_state(memory_backend=memory_backend)
+        app.state.runtime_state = create_app_state(
+            memory_backend=memory_backend,
+            extension_registry=extension_registry,
+        )
         if initialize_dependencies:
             initialize_app_state(app.state.runtime_state)
         try:
@@ -36,9 +41,10 @@ def create_app(
 
     app = FastAPI(lifespan=lifespan)
     app.state.runtime_state = runtime_state
-    app.include_router(health_router)
-    app.include_router(ingest_router)
-    app.include_router(query_router)
+    registry = extension_registry or create_default_registry()
+    for contributor in registry.get_api_router_contributors():
+        for router in contributor.routers():
+            app.include_router(router)
     return app
 
 

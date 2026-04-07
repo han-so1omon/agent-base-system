@@ -4,9 +4,14 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 from base_agent_system.app_state import AppState
 from base_agent_system.dependencies import create_app_state, dependency_status
+from base_agent_system.extensions.registry import create_default_registry
+
+if TYPE_CHECKING:
+    from base_agent_system.extensions.registry import ExtensionRegistry
 
 
 def shared_services(app_state: AppState | None = None) -> dict[str, object]:
@@ -40,19 +45,15 @@ def run_smoke_test(app_state: AppState | None = None) -> str:
     return f"smoke-test: {services['availability']}"
 
 
-def build_parser() -> argparse.ArgumentParser:
+def build_parser(
+    *, extension_registry: "ExtensionRegistry | None" = None
+) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="base-agent-system")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    subparsers.add_parser("check-connections")
-
-    ingest_parser = subparsers.add_parser("ingest")
-    ingest_parser.add_argument("path")
-
-    ask_parser = subparsers.add_parser("ask")
-    ask_parser.add_argument("question")
-
-    subparsers.add_parser("smoke-test")
+    registry = extension_registry or create_default_registry()
+    for contributor in registry.get_cli_command_contributors():
+        contributor.register(parser, subparsers)
     return parser
 
 
@@ -60,14 +61,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    if args.command == "check-connections":
-        print(run_check_connections())
-    elif args.command == "ingest":
-        print(run_ingest(args.path))
-    elif args.command == "ask":
-        print(run_ask(args.question))
-    else:
-        print(run_smoke_test())
+    print(args.handler(args))
 
     return 0
 
