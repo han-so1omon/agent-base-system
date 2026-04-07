@@ -1,0 +1,13 @@
+installTraefik: true
+gatewayClassName: traefik
+image:
+  repository: base-agent-system
+  tag: 0.1.0
+  pullPolicy: IfNotPresent
+gateway:
+  listenerName: web
+  port: 8000
+  sharedGateway:
+    create: false
+    namespace: traefik
+    name: traefik-gateway

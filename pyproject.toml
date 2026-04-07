@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "base-agent-system"
+version = "0.1.0"
+description = "Base AI agent system scaffold."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi",
+  "graphiti-core>=0.28,<0.29",
+  "langgraph>=0.2,<0.3",
+  "langgraph-checkpoint-postgres>=2,<3",
+  "llama-index>=0.14,<0.15",
+  "psycopg[binary]>=3.2,<3.3",
+  "pydantic",
+]
+
+[project.scripts]
+base-agent-system = "base_agent_system.cli.main:main"
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.packages.find]
+where = ["src"]

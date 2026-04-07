@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: base-agent-system-config
+data:
+  BASE_AGENT_SYSTEM_PORT: "8000"
+  UVICORN_HOST: {{ .Values.config.uvicornHost | quote }}
+  BASE_AGENT_SYSTEM_API_PORT: {{ .Values.config.apiPort | quote }}
+  BASE_AGENT_SYSTEM_APP_ENV: {{ .Values.config.appEnv | quote }}
+  BASE_AGENT_SYSTEM_NEO4J_URI: {{ .Values.config.neo4jUri | quote }}

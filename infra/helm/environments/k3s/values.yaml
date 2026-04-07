@@ -1,0 +1,6 @@
+installTraefik: false
+gatewayClassName: traefik
+image:
+  repository: ghcr.io/example/base-agent-system
+  tag: 0.1.0
+  pullPolicy: IfNotPresent

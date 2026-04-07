@@ -1,0 +1,3 @@
+secret:
+  openaiApiKey: "replace-me"
+  anthropicApiKey: "replace-me"

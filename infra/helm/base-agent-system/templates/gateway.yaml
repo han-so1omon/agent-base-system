@@ -1,0 +1,13 @@
+{{- if and .Values.gateway.enabled .Values.gateway.sharedGateway.create }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: base-agent-system
+spec:
+  gatewayClassName: {{ .Values.gateway.gatewayClassName }}
+  listeners:
+    - name: {{ .Values.gateway.listenerName }}
+      hostname: {{ .Values.gateway.hostname | quote }}
+      port: {{ .Values.gateway.port }}
+      protocol: HTTP
+{{- end }}

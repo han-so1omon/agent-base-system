@@ -1,0 +1,51 @@
+environments:
+  kind:
+    values:
+      - infra/helm/environments/kind/values.yaml
+{{- if (isFile "infra/helm/environments/kind/values.local.yaml") }}
+      - infra/helm/environments/kind/values.local.yaml
+{{- end }}
+  k3s:
+    values:
+      - infra/helm/environments/k3s/values.yaml
+
+---
+
+repositories:
+  - name: traefik
+    url: https://traefik.github.io/charts
+  - name: neo4j
+    url: https://helm.neo4j.com/neo4j
+
+releases:
+  - name: traefik
+    namespace: traefik
+    chart: traefik/traefik
+    installed: {{ .Values.installTraefik }}
+    values:
+      - gateway:
+          enabled: true
+          listeners:
+            web:
+              namespacePolicy:
+                from: All
+      - providers:
+          kubernetesGateway:
+            enabled: true
+
+  - name: neo4j
+    namespace: base-agent-system
+    chart: neo4j/neo4j
+    values:
+      - infra/helm/neo4j/values-common.yaml
+      - infra/helm/neo4j/values-{{ .Environment.Name }}.yaml
+
+  - name: postgres-checkpoints
+    namespace: base-agent-system
+    chart: ./infra/helm/postgres-checkpoints
+
+  - name: base-agent-system
+    namespace: base-agent-system
+    chart: ./infra/helm/base-agent-system
+    values:
+      - infra/helm/environments/{{ .Environment.Name }}/values.yaml
