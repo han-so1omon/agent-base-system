@@ -1,5 +1,10 @@
 installTraefik: true
 gatewayClassName: traefik
+traefikPorts:
+  web:
+    nodePort: 30080
+  websecure:
+    nodePort: 30443
 image:
   repository: base-agent-system
   tag: 0.1.0

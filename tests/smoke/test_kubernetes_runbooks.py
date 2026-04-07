@@ -18,6 +18,9 @@ def test_kubernetes_runbook_describes_helmfile_flows() -> None:
     assert "/ready" in text
     assert "/ingest" in text
     assert "/query" in text
+    assert "8000" in text
+    assert "8443" in text
+    assert "port-forward" in text
     assert "values.local.yaml" in text
     assert "checkpoint_writes" in text
     assert "Episodic" in text

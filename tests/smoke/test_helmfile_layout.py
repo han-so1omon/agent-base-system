@@ -22,9 +22,21 @@ def test_helmfile_layout_covers_kind_and_k3s_releases() -> None:
     assert "name: postgres-checkpoints" in helmfile_text
     assert "name: base-agent-system" in helmfile_text
     assert "installed: {{ .Values.installTraefik }}" in helmfile_text
+    assert "web:" in helmfile_text
+    assert "nodePort: {{ .Values.traefikPorts.web.nodePort }}" in helmfile_text
+    assert "websecure:" in helmfile_text
+    assert "nodePort: {{ .Values.traefikPorts.websecure.nodePort }}" in helmfile_text
+    assert "secret:" in helmfile_text
+    assert "openaiApiKey: {{ .Values.secret.openaiApiKey }}" in helmfile_text
+    assert "anthropicApiKey: {{ .Values.secret.anthropicApiKey }}" in helmfile_text
     assert "namespacePolicy:" in helmfile_text
     assert "from: All" in helmfile_text
     assert "installTraefik: true" in kind_text
+    assert "traefikPorts:" in kind_text
+    assert "web:" in kind_text
+    assert "nodePort: 30080" in kind_text
+    assert "websecure:" in kind_text
+    assert "nodePort: 30443" in kind_text
     assert "installTraefik: false" in k3s_text
     assert "gatewayClassName:" in kind_text
     assert "gatewayClassName:" in k3s_text
