@@ -23,6 +23,14 @@ releases:
     chart: traefik/traefik
     installed: {{ .Values.installTraefik }}
     values:
+      - service:
+          spec:
+            type: LoadBalancer
+      - ports:
+          web:
+            nodePort: {{ .Values.traefikPorts.web.nodePort }}
+          websecure:
+            nodePort: {{ .Values.traefikPorts.websecure.nodePort }}
       - gateway:
           enabled: true
           listeners:
@@ -49,3 +57,6 @@ releases:
     chart: ./infra/helm/base-agent-system
     values:
       - infra/helm/environments/{{ .Environment.Name }}/values.yaml
+      - secret:
+          openaiApiKey: {{ .Values.secret.openaiApiKey }}
+          anthropicApiKey: {{ .Values.secret.anthropicApiKey }}

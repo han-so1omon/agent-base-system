@@ -12,8 +12,13 @@ Bootstrap prepares the cluster. It does not install Helm releases.
 ## Kind Flow
 
 1. Run the kind bootstrap script.
-2. Confirm the local image `base-agent-system:0.1.0` was loaded into the cluster.
-3. Run:
+2. Confirm the host ingress ports are reserved for the kind control-plane node:
+
+- `http://127.0.0.1:8000`
+- `https://127.0.0.1:8443`
+
+3. Confirm the local image `base-agent-system:0.1.0` was loaded into the cluster.
+4. Run:
 
 ```bash
 cp infra/helm/environments/kind/values.local.example.yaml infra/helm/environments/kind/values.local.yaml
@@ -46,7 +51,7 @@ In `k3s`, Helmfile installs Neo4j, Postgres checkpoints, and the app chart. It d
 After deployment, verify the shared Gateway and HTTPRoute exist:
 
 ```bash
-kubectl get gateway -n base-agent-system
+kubectl get gateway -n traefik
 kubectl get httproute -n base-agent-system
 ```
 
@@ -74,6 +79,18 @@ The minimum API checks are:
 - `/ready` returns `200`
 - `/ingest` succeeds
 - `/query` succeeds
+
+In `kind`, the preferred host entrypoint is through the bootstrap port mappings on `127.0.0.1:8000` and `127.0.0.1:8443`.
+
+Those host ports map to stable Traefik node ports `30080` and `30443` inside the kind control-plane node.
+
+If the cluster was created before those mappings existed, use a temporary fallback:
+
+```bash
+kubectl port-forward -n base-agent-system svc/base-agent-system 18081:80
+```
+
+Then run the smoke checks against `http://127.0.0.1:18081`.
 
 ## Kind Persistence Verification
 
