@@ -1,13 +1,19 @@
 """Dependency accessors for application wiring."""
 
+from __future__ import annotations
+
 from functools import lru_cache
 import socket
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from base_agent_system.app_state import AppState
 from base_agent_system.memory.graphiti_service import GraphitiMemoryBackend
 from base_agent_system.config import Settings, load_settings
 from base_agent_system.runtime_services import build_runtime_services
+
+if TYPE_CHECKING:
+    from base_agent_system.extensions.registry import ExtensionRegistry
 
 
 @lru_cache(maxsize=1)
@@ -19,11 +25,13 @@ def create_app_state(
     settings: Settings | None = None,
     *,
     memory_backend: GraphitiMemoryBackend | None = None,
+    extension_registry: ExtensionRegistry | None = None,
 ) -> AppState:
     runtime_settings = settings or get_settings()
     ingest_service, workflow_service = build_runtime_services(
         runtime_settings,
         memory_backend=memory_backend,
+        extension_registry=extension_registry,
     )
     return AppState(
         settings=runtime_settings,

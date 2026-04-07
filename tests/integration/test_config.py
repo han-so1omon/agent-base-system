@@ -85,7 +85,18 @@ def test_create_app_state_uses_cached_settings(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setenv("BASE_AGENT_SYSTEM_NEO4J_DATABASE", "neo4j")
     monkeypatch.setenv("BASE_AGENT_SYSTEM_POSTGRES_URI", "postgresql://postgres:postgres@localhost:5432/app")
 
+    class _CheckpointerHolder:
+        def open(self) -> object | None:
+            return None
+
+        def close(self) -> None:
+            return None
+
     get_settings.cache_clear()
+    monkeypatch.setattr(
+        "base_agent_system.runtime_services.build_postgres_checkpointer",
+        lambda postgres_uri: _CheckpointerHolder(),
+    )
 
     settings = get_settings()
     state = create_app_state(settings, memory_backend=_InMemoryGraphitiBackend())

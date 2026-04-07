@@ -5,10 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 import re
 from tempfile import TemporaryDirectory
-from typing import Any
+from typing import Any, Callable
 
 from base_agent_system.config import Settings
 from base_agent_system.checkpointing import build_postgres_checkpointer
+from base_agent_system.extensions.registry import ExtensionRegistry, create_default_registry
 from base_agent_system.memory.graphiti_service import GraphitiMemoryBackend
 from base_agent_system.ingestion.pipeline import ingest_markdown_directory
 from base_agent_system.memory.graphiti_service import GraphitiMemoryService
@@ -17,32 +18,99 @@ from base_agent_system.retrieval.index_service import RetrievalIndex, build_or_l
 from base_agent_system.retrieval.models import RetrievalResult
 from base_agent_system.workflow.graph import build_workflow
 
+RetrievalServiceFactory = Callable[[Settings], tuple["_MutableRetrievalService", TemporaryDirectory[str]]]
+MemoryServiceFactory = Callable[[Settings], GraphitiMemoryService]
+IngestServiceFactory = Callable[..., "IngestService"]
+WorkflowServiceFactory = Callable[..., "WorkflowService"]
+
 
 def build_runtime_services(
     settings: Settings,
     *,
     memory_backend: GraphitiMemoryBackend | None = None,
+    extension_registry: ExtensionRegistry | None = None,
+    retrieval_service_factory: RetrievalServiceFactory | None = None,
+    memory_service_factory: Callable[..., GraphitiMemoryService] | None = None,
+    ingest_service_factory: IngestServiceFactory | None = None,
+    workflow_service_factory: WorkflowServiceFactory | None = None,
 ) -> tuple[object, object]:
+    registry = extension_registry or create_default_registry(settings)
+    retrieval_builder = retrieval_service_factory or build_retrieval_service
+    memory_builder = memory_service_factory or build_memory_service
+    ingest_builder = ingest_service_factory or build_ingest_service
+    workflow_builder_factory = workflow_service_factory or build_workflow_service
+
+    retrieval_service, temp_dir = retrieval_builder(settings)
+    memory_service = memory_builder(
+        settings,
+        memory_backend=memory_backend,
+    )
+    ingest_service = ingest_builder(
+        settings,
+        retrieval_service=retrieval_service,
+        index_dir=getattr(temp_dir, "name", temp_dir),
+        connector=registry.get_ingestion_connector("markdown"),
+    )
+    ingest_service.run(path=str(settings.docs_seed_path))
+    workflow_service = workflow_builder_factory(
+        settings,
+        retrieval_service=retrieval_service,
+        memory_service=memory_service,
+        temp_dir=temp_dir,
+        workflow_builder=registry.get_workflow_builder("default"),
+    )
+    return ingest_service, workflow_service
+
+
+def build_retrieval_service(settings: Settings) -> tuple["_MutableRetrievalService", TemporaryDirectory[str]]:
+    del settings
     temp_dir = TemporaryDirectory(prefix="base-agent-system-index-")
-    retrieval_service = _MutableRetrievalService()
-    memory_service = GraphitiMemoryService(
+    return _MutableRetrievalService(), temp_dir
+
+
+def build_memory_service(
+    settings: Settings,
+    *,
+    memory_backend: GraphitiMemoryBackend | None = None,
+) -> GraphitiMemoryService:
+    service = GraphitiMemoryService(
         settings=settings,
         backend=memory_backend,
     )
-    memory_service.initialize_indices()
-    ingest_service = IngestService(
+    service.initialize_indices()
+    return service
+
+
+def build_ingest_service(
+    settings: Settings,
+    *,
+    retrieval_service: "_MutableRetrievalService",
+    index_dir: str | Path,
+    connector: object | None = None,
+) -> "IngestService":
+    return IngestService(
         settings=settings,
         retrieval_service=retrieval_service,
-        index_dir=Path(temp_dir.name),
+        index_dir=Path(index_dir),
+        connector=connector,
     )
-    ingest_service.run(path=str(settings.docs_seed_path))
-    workflow_service = WorkflowService(
+
+
+def build_workflow_service(
+    settings: Settings,
+    *,
+    retrieval_service: "_MutableRetrievalService",
+    memory_service: GraphitiMemoryService,
+    temp_dir: TemporaryDirectory[str],
+    workflow_builder: object = build_workflow,
+) -> "WorkflowService":
+    return WorkflowService(
         settings=settings,
         retrieval_service=retrieval_service,
         memory_service=memory_service,
         temp_dir=temp_dir,
+        workflow_builder=workflow_builder,
     )
-    return ingest_service, workflow_service
 
 
 class IngestService:
@@ -52,10 +120,12 @@ class IngestService:
         settings: Settings,
         retrieval_service: "_MutableRetrievalService",
         index_dir: Path,
+        connector: object,
     ) -> None:
         self._settings = settings
         self._retrieval_service = retrieval_service
         self._index_dir = index_dir
+        self._connector = connector
 
     def run(self, *, path: str | None = None) -> dict[str, int]:
         directory = Path(path or self._settings.docs_seed_path)
@@ -77,6 +147,7 @@ class WorkflowService:
         retrieval_service: "_MutableRetrievalService",
         memory_service: GraphitiMemoryService,
         temp_dir: TemporaryDirectory[str],
+        workflow_builder: object,
     ) -> None:
         self._memory_service = memory_service
         self._temp_dir = temp_dir
@@ -86,7 +157,7 @@ class WorkflowService:
             self._checkpointer_holder = build_postgres_checkpointer(settings.postgres_uri)
         if self._checkpointer_holder is not None:
             self._checkpointer = self._checkpointer_holder.open()
-        self._app = build_workflow(
+        self._app = workflow_builder(
             settings=settings,
             retrieval_service=retrieval_service,
             memory_service=memory_service,

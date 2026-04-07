@@ -1,5 +1,41 @@
 # Local Development
 
+## Extending The Base System
+
+The runtime uses explicit registration through `create_default_registry()` for ingestion, retrieval, workflow, API, and CLI seams. That keeps the shipped behavior stable while letting local code add targeted extensions without replacing the whole app.
+
+Supported extension seams:
+- ingestion connectors
+- retrieval providers
+- workflow builders
+- constrained workflow hooks
+- API router contributors
+- CLI command contributors
+
+Example CLI extension:
+
+```python
+from base_agent_system.cli.main import build_parser
+from base_agent_system.extensions.registry import create_default_registry
+
+
+class ExtraCommandContributor:
+    def register(self, parser, subparsers) -> None:
+        extra = subparsers.add_parser("extra")
+        extra.add_argument("value")
+        extra.set_defaults(handler=lambda args: f"extra: {args.value}")
+
+
+registry = create_default_registry()
+registry.register_cli_command_contributor(ExtraCommandContributor())
+parser = build_parser(extension_registry=registry)
+```
+
+Current non-goals:
+- no auto-discovery
+- no out-of-process plugins
+- no arbitrary workflow graph mutation
+
 1. Install the package in a Python 3.11 environment with `pip install -e .[dev]`.
 2. Export the runtime environment variables:
 

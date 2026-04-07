@@ -2,6 +2,7 @@ from pathlib import Path
 
 from base_agent_system.ingestion.pipeline import ingest_markdown_directory
 from base_agent_system.retrieval.index_service import build_or_load_index
+from base_agent_system.retrieval.providers import LocalIndexRetrievalProvider
 
 
 def test_build_or_load_index_returns_relevant_chunks_with_citations(tmp_path: Path) -> None:
@@ -111,6 +112,29 @@ def test_query_supports_short_semantic_terms(tmp_path: Path) -> None:
     )
 
     results = index.query("AI retrieval", top_k=1)
+
+    assert len(results) == 1
+    assert results[0].citation.path == str(markdown_file)
+
+
+def test_local_index_retrieval_provider_wraps_existing_index_contract(tmp_path: Path) -> None:
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+    markdown_file = docs_dir / "example.md"
+    markdown_file.write_text(
+        "# Provider Notes\n\n"
+        "Provider-backed retrieval should preserve the current result contract.\n",
+        encoding="utf-8",
+    )
+
+    ingestion_result = ingest_markdown_directory(docs_dir, chunk_size=80, chunk_overlap=10)
+    index = build_or_load_index(
+        index_dir=tmp_path / "retrieval-index",
+        chunks=ingestion_result.chunks,
+    )
+    provider = LocalIndexRetrievalProvider(index)
+
+    results = provider.query("provider-backed retrieval", top_k=1)
 
     assert len(results) == 1
     assert results[0].citation.path == str(markdown_file)

@@ -19,7 +19,19 @@ def test_post_query_returns_answer_citations_thread_id_and_debug(
 ) -> None:
     _base_env(monkeypatch)
 
+    class _CheckpointerHolder:
+        def open(self) -> object | None:
+            return None
+
+        def close(self) -> None:
+            return None
+
     from base_agent_system.api.app import create_app
+
+    monkeypatch.setattr(
+        "base_agent_system.runtime_services.build_postgres_checkpointer",
+        lambda postgres_uri: _CheckpointerHolder(),
+    )
 
     app = create_app(
         initialize_dependencies=False,

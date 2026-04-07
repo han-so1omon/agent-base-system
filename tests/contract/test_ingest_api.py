@@ -22,7 +22,19 @@ def test_post_ingest_returns_file_and_chunk_counts_for_explicit_path(
 ) -> None:
     _base_env(monkeypatch)
 
+    class _CheckpointerHolder:
+        def open(self) -> object | None:
+            return None
+
+        def close(self) -> None:
+            return None
+
     from base_agent_system.api.app import create_app
+
+    monkeypatch.setattr(
+        "base_agent_system.runtime_services.build_postgres_checkpointer",
+        lambda postgres_uri: _CheckpointerHolder(),
+    )
 
     docs_dir = tmp_path / "docs"
     docs_dir.mkdir()
@@ -49,7 +61,19 @@ def test_post_ingest_defaults_to_docs_seed_when_path_not_provided(
 ) -> None:
     _base_env(monkeypatch)
 
+    class _CheckpointerHolder:
+        def open(self) -> object | None:
+            return None
+
+        def close(self) -> None:
+            return None
+
     from base_agent_system.api.app import create_app
+
+    monkeypatch.setattr(
+        "base_agent_system.runtime_services.build_postgres_checkpointer",
+        lambda postgres_uri: _CheckpointerHolder(),
+    )
 
     app = create_app(
         initialize_dependencies=False,

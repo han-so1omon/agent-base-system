@@ -6,7 +6,7 @@ from typing import Protocol
 
 from base_agent_system.memory.models import MemoryEpisode, MemorySearchResult
 from base_agent_system.retrieval.models import RetrievalResult
-from base_agent_system.workflow.state import WorkflowState
+from base_agent_system.workflow.state import WorkflowHook, WorkflowState
 
 
 class RetrievalService(Protocol):
@@ -71,6 +71,7 @@ def synthesize_answer_node():
     def synthesize_answer(state: WorkflowState) -> WorkflowState:
         docs = state.get("retrieved_docs", [])
         memory = state.get("retrieved_memory", [])
+        debug = dict(state.get("debug", {}))
         citations = [item["citation"] for item in docs]
         parts = []
         if docs:
@@ -83,6 +84,7 @@ def synthesize_answer_node():
             "answer": " ".join(parts),
             "citations": citations,
             "debug": {
+                **debug,
                 "document_hits": len(docs),
                 "memory_hits": len(memory),
             },
@@ -110,3 +112,16 @@ def persist_memory_node(memory_service: MemoryService):
         return {}
 
     return persist_memory
+
+
+def workflow_hook_node(hooks: tuple[WorkflowHook, ...]):
+    def run_hooks(state: WorkflowState) -> WorkflowState:
+        updates: WorkflowState = {}
+        current_state = dict(state)
+        for hook in hooks:
+            hook_update = hook(current_state)
+            current_state.update(hook_update)
+            updates.update(hook_update)
+        return updates
+
+    return run_hooks

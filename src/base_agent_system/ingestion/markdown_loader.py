@@ -2,8 +2,6 @@
 
 from pathlib import Path
 
-from llama_index.core import Document
-
 from base_agent_system.ingestion.models import MarkdownDocument
 
 
@@ -23,10 +21,6 @@ def _load_markdown_document(path: Path) -> MarkdownDocument:
         source_path=path,
         title=title,
         content=content,
-        llama_document=Document(
-            text=content,
-            metadata={"path": str(path), "title": title},
-        ),
     )
 
 

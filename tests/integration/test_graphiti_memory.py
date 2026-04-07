@@ -21,6 +21,20 @@ def _settings() -> Settings:
     )
 
 
+def _stub_checkpointer(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _CheckpointerHolder:
+        def open(self) -> object | None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "base_agent_system.runtime_services.build_postgres_checkpointer",
+        lambda postgres_uri: _CheckpointerHolder(),
+    )
+
+
 def test_graphiti_memory_service_requires_neo4j_configuration() -> None:
     settings = replace(_settings(), neo4j_user=" ")
 
@@ -50,6 +64,24 @@ def test_graphiti_memory_service_uses_live_backend_and_surfaces_provider_errors(
 ) -> None:
     settings = _settings()
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    class _FakeClient:
+        async def build_indices_and_constraints(self) -> None:
+            return None
+
+        async def add_episode(self, **kwargs) -> None:
+            raise RuntimeError("provider api key rejected by upstream")
+
+        async def close(self) -> None:
+            return None
+
+    async def _fake_create_client(self, *, uri: str, user: str, password: str) -> _FakeClient:
+        return _FakeClient()
+
+    monkeypatch.setattr(
+        "base_agent_system.memory.graphiti_service._LiveGraphitiBackend._create_client",
+        _fake_create_client,
+    )
 
     service = GraphitiMemoryService(settings=settings)
 
@@ -123,6 +155,7 @@ def test_runtime_memory_selection_defaults_to_live_graphiti(monkeypatch: pytest.
     settings = _settings()
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     observed: dict[str, object] = {}
+    _stub_checkpointer(monkeypatch)
 
     def fake_initialize(self) -> None:
         observed["backend"] = self._backend
@@ -142,6 +175,7 @@ def test_runtime_memory_selection_uses_injected_backend_for_tests(
     settings = _settings()
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     observed: dict[str, object] = {}
+    _stub_checkpointer(monkeypatch)
 
     def fake_initialize(self) -> None:
         observed["backend"] = self._backend

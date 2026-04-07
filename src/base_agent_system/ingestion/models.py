@@ -1,4 +1,4 @@
-"""Data models for markdown ingestion."""
+"""Data models for document ingestion."""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -7,11 +7,20 @@ from llama_index.core.schema import Document, TextNode
 
 
 @dataclass(frozen=True)
-class MarkdownDocument:
+class IngestionDocument:
     source_path: Path
     title: str
     content: str
-    llama_document: Document
+
+    @property
+    def llama_document(self) -> Document:
+        return Document(
+            text=self.content,
+            metadata={"path": str(self.source_path), "title": self.title},
+        )
+
+
+MarkdownDocument = IngestionDocument
 
 
 @dataclass(frozen=True)
