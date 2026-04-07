@@ -1,0 +1,14 @@
+image:
+  repository: postgres
+  tag: "16"
+  pullPolicy: IfNotPresent
+
+database: langgraph
+user: postgres
+password: postgres
+
+storage:
+  size: 10Gi
+
+service:
+  port: 5432

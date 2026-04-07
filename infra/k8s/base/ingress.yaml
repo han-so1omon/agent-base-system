@@ -1,0 +1,16 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: base-agent-system
+spec:
+  rules:
+    - host: base-agent-system.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: base-agent-system
+                port:
+                  name: http

@@ -1,0 +1,16 @@
+neo4j:
+  name: neo4j
+  edition: community
+  password: change-me
+  minimumClusterSize: 1
+
+volumes:
+  data:
+    mode: defaultStorageClass
+
+config:
+  dbms.security.procedures.unrestricted: ""
+  dbms.security.procedures.allowlist: apoc.coll.*,apoc.load.json.*,apoc.path.*
+
+apoc_jar_enabled:
+  - apoc

@@ -1,0 +1,42 @@
+replicaCount: 2
+
+image:
+  repository: base-agent-system
+  tag: 0.1.0
+  pullPolicy: IfNotPresent
+
+service:
+  port: 80
+  targetPort: 8000
+
+config:
+  appEnv: production
+  apiPort: "8000"
+  uvicornHost: 0.0.0.0
+  neo4jUri: bolt://neo4j:7687
+
+secret:
+  openaiApiKey: replace-me
+  anthropicApiKey: replace-me
+  postgresUri: postgresql://postgres:postgres@postgres-checkpoints:5432/langgraph
+  neo4jUser: neo4j
+  neo4jPassword: change-me
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+gateway:
+  enabled: true
+  gatewayClassName: traefik
+  hostname: base-agent-system.local
+  listenerName: http
+  port: 80
+  sharedGateway:
+    create: true
+    namespace: base-agent-system
+    name: base-agent-system

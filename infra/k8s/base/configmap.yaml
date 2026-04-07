@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: base-agent-system-config
+data:
+  BASE_AGENT_SYSTEM_PORT: "8000"
+  UVICORN_HOST: "0.0.0.0"
+  BASE_AGENT_SYSTEM_API_PORT: "8000"
+  BASE_AGENT_SYSTEM_APP_ENV: "production"
+  BASE_AGENT_SYSTEM_NEO4J_URI: "bolt://neo4j:7687"
