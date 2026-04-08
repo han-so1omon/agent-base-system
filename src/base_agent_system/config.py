@@ -10,6 +10,7 @@ class Settings:
     neo4j_uri: str = ""
     postgres_uri: str = ""
     app_env: str = "development"
+    llm_model: str = "gpt-4o-mini"
     openai_model: str = "gpt-4.1-mini"
     openai_api_key_name: str = "OPENAI_API_KEY"
     anthropic_model: str = "claude-3-7-sonnet"
@@ -38,6 +39,7 @@ class Settings:
 def load_settings() -> Settings:
     return Settings(
         app_env=_get_env("BASE_AGENT_SYSTEM_APP_ENV", "development"),
+        llm_model=_get_env("BASE_AGENT_SYSTEM_LLM_MODEL", "gpt-4o-mini"),
         openai_model=_get_env("BASE_AGENT_SYSTEM_OPENAI_MODEL", "gpt-4.1-mini"),
         openai_api_key_name=_get_env("BASE_AGENT_SYSTEM_OPENAI_API_KEY_NAME", "OPENAI_API_KEY"),
         anthropic_model=_get_env("BASE_AGENT_SYSTEM_ANTHROPIC_MODEL", "claude-3-7-sonnet"),

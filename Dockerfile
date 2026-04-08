@@ -1,3 +1,13 @@
+FROM node:22-slim AS web-builder
+
+WORKDIR /web
+
+COPY web/package.json web/package-lock.json* ./
+RUN npm ci
+
+COPY web/ ./
+RUN npm run build
+
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -10,6 +20,7 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src/ ./src/
 COPY docs/seed/ ./docs/seed/
+COPY --from=web-builder /web/out/ ./web-static/
 
 RUN pip install --no-cache-dir . uvicorn
 

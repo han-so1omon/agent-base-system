@@ -18,6 +18,7 @@ def _settings() -> Settings:
         neo4j_password="password",
         neo4j_database="neo4j",
         postgres_uri="postgresql://postgres:postgres@localhost:5432/app",
+        app_env="test",
     )
 
 
@@ -193,6 +194,41 @@ def test_runtime_memory_selection_uses_injected_backend_for_tests(
     workflow_service.close()
 
 
+def test_workflow_service_persists_user_and_assistant_turns_after_agent_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from base_agent_system.runtime_services import WorkflowService
+
+    settings = _settings()
+    _stub_checkpointer(monkeypatch)
+    backend = _InMemoryGraphitiBackend()
+    memory_service = GraphitiMemoryService(
+        settings=settings,
+        backend=backend,
+        provider_api_key="test-key",
+    )
+    memory_service.initialize_indices()
+
+    workflow_service = WorkflowService(
+        settings=settings,
+        retrieval_service=SimpleNamespace(),
+        memory_service=memory_service,
+        temp_dir=SimpleNamespace(cleanup=lambda: None),
+        workflow_builder=lambda **kwargs: _WorkflowStub(),
+    )
+
+    result = workflow_service.run(
+        thread_id="thread-persist-123",
+        messages=[{"role": "user", "content": "Remember that my preferred deployment target is Kubernetes."}],
+    )
+
+    assert result["answer"] == "I will remember that your preferred deployment target is Kubernetes."
+    assert [episode.actor for episode in backend.episodes] == ["user", "assistant"]
+    assert backend.episodes[0].thread_id == "thread-persist-123"
+    assert "preferred deployment target" in backend.episodes[0].content.lower()
+    assert "kubernetes" in backend.episodes[1].content.lower()
+
+
 def test_live_graphiti_backend_uses_basic_search_signature() -> None:
     search_calls: list[dict[str, object]] = []
 
@@ -288,3 +324,14 @@ class _InMemoryGraphitiBackend:
 
         matches.sort(key=lambda item: item["score"], reverse=True)
         return matches[:limit]
+
+
+class _WorkflowStub:
+    def invoke(self, payload: dict[str, object], **kwargs) -> dict[str, object]:
+        assert payload["thread_id"] == "thread-persist-123"
+        return {
+            "thread_id": "thread-persist-123",
+            "answer": "I will remember that your preferred deployment target is Kubernetes.",
+            "citations": [],
+            "debug": {"document_hits": 0, "memory_hits": 0, "tool_calls": 0},
+        }

@@ -45,6 +45,7 @@ export BASE_AGENT_SYSTEM_NEO4J_USER=neo4j
 export BASE_AGENT_SYSTEM_NEO4J_PASSWORD=password
 export BASE_AGENT_SYSTEM_NEO4J_DATABASE=neo4j
 export BASE_AGENT_SYSTEM_POSTGRES_URI=postgresql://postgres:postgres@localhost:5432/app
+export BASE_AGENT_SYSTEM_LLM_MODEL=gpt-4o-mini
 export OPENAI_API_KEY=...
 ```
 
@@ -62,23 +63,25 @@ curl -X POST http://127.0.0.1:8000/ingest \
 7. Verify retrieval with:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/query \
+curl -X POST http://127.0.0.1:8000/interact \
   -H 'Content-Type: application/json' \
-  -d '{"thread_id":"smoke-thread","query":"What does the markdown ingestion service do?"}'
+  -d '{"thread_id":"smoke-thread","messages":[{"role":"user","content":"What does the markdown ingestion service do?"}]}'
 ```
 
 Expected: non-empty `citations` and `debug.document_hits >= 1`.
 
+The backend owns LLM invocation. The canonical backend interaction API is `/interact`, and the web chat UI routes through `/api/chat`, which adapts into the same LangGraph ReAct agent using OpenAI directly with `gpt-4o-mini` by default.
+
 8. Verify persistent memory with:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/query \
+curl -X POST http://127.0.0.1:8000/interact \
   -H 'Content-Type: application/json' \
-  -d '{"thread_id":"smoke-thread","query":"Remember that my preferred deployment target is Kubernetes."}'
+  -d '{"thread_id":"smoke-thread","messages":[{"role":"user","content":"Remember that my preferred deployment target is Kubernetes."}]}'
 
-curl -X POST http://127.0.0.1:8000/query \
+curl -X POST http://127.0.0.1:8000/interact \
   -H 'Content-Type: application/json' \
-  -d '{"thread_id":"smoke-thread","query":"What is my preferred deployment target?"}'
+  -d '{"thread_id":"smoke-thread","messages":[{"role":"user","content":"What is my preferred deployment target?"}]}'
 ```
 
 Expected: the second response mentions `Kubernetes` and `debug.memory_hits >= 1`.

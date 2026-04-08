@@ -10,6 +10,7 @@ from base_agent_system.runtime_services import _InMemoryGraphitiBackend
 
 def test_load_settings_reads_typed_values(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("BASE_AGENT_SYSTEM_APP_ENV", "test")
+    monkeypatch.setenv("BASE_AGENT_SYSTEM_LLM_MODEL", "gpt-4o-mini")
     monkeypatch.setenv("BASE_AGENT_SYSTEM_OPENAI_MODEL", "gpt-4.1-mini")
     monkeypatch.setenv("BASE_AGENT_SYSTEM_OPENAI_API_KEY_NAME", "OPENAI_API_KEY")
     monkeypatch.setenv("BASE_AGENT_SYSTEM_ANTHROPIC_MODEL", "claude-3-7-sonnet")
@@ -29,8 +30,11 @@ def test_load_settings_reads_typed_values(monkeypatch: pytest.MonkeyPatch) -> No
 
     assert isinstance(settings, Settings)
     assert settings.app_env == "test"
+    assert settings.llm_model == "gpt-4o-mini"
     assert settings.openai_model == "gpt-4.1-mini"
     assert settings.openai_api_key_name == "OPENAI_API_KEY"
+    assert not hasattr(settings, "ai_gateway_api_key_name")
+    assert not hasattr(settings, "ai_gateway_base_url")
     assert settings.anthropic_model == "claude-3-7-sonnet"
     assert settings.anthropic_api_key_name == "ANTHROPIC_API_KEY"
     assert settings.neo4j_uri == "bolt://localhost:7687"
@@ -84,6 +88,7 @@ def test_create_app_state_uses_cached_settings(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setenv("BASE_AGENT_SYSTEM_NEO4J_PASSWORD", "password")
     monkeypatch.setenv("BASE_AGENT_SYSTEM_NEO4J_DATABASE", "neo4j")
     monkeypatch.setenv("BASE_AGENT_SYSTEM_POSTGRES_URI", "postgresql://postgres:postgres@localhost:5432/app")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
 
     class _CheckpointerHolder:
         def open(self) -> object | None:

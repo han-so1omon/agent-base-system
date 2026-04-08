@@ -7,6 +7,11 @@ dist/
 build/
 *.egg-info/
 infra/helm/environments/kind/values.local.yaml
+web/.env.local
+web/node_modules/
+web/.next/
+web/out/
+skills/worktrunk
 .adal/
 .agents/
 .augment/
