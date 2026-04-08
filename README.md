@@ -47,3 +47,25 @@ Run the smoke tests with:
 ```bash
 pytest tests -q
 ```
+
+## Web Chat UI
+
+A small `Next.js` app lives in `web/` and uses `Vercel AI SDK` for chat ergonomics while delegating real query execution to the FastAPI backend.
+
+The frontend architecture is intentionally thin:
+- `web/app/page.tsx` provides the operator chat UI
+- FastAPI remains the system of record for retrieval, memory, persistence, and LLM invocation
+- the backend LangGraph ReAct agent uses OpenAI directly with `gpt-4o-mini` by default
+
+For the local `kind` deployment, the packaged chat UI is also served through the cluster ingress at `http://127.0.0.1:8000/chat`.
+
+To run it locally:
+
+```bash
+cd web
+cp .env.local.example .env.local
+npm install
+npm run dev
+```
+
+Set `BASE_AGENT_SYSTEM_API_URL` in `web/.env.local` to your FastAPI base URL, for example `http://127.0.0.1:8000`.

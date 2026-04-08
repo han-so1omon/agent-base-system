@@ -67,3 +67,4 @@ kind load docker-image "$IMAGE_TAG" --name "$CLUSTER_NAME"
 printf '\nBootstrap complete for kind cluster %s.\n' "$CLUSTER_NAME"
 printf 'Host ingress ports: http://127.0.0.1:%s and https://127.0.0.1:%s\n' "$HOST_HTTP_PORT" "$HOST_HTTPS_PORT"
 printf 'Next step: helmfile -e kind sync\n'
+printf 'For later app-only updates, run: ./scripts/deploy-kind.sh\n'

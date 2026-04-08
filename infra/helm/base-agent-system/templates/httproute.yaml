@@ -8,8 +8,10 @@ spec:
     - name: {{ .Values.gateway.sharedGateway.name }}
       namespace: {{ .Values.gateway.sharedGateway.namespace }}
       sectionName: {{ .Values.gateway.listenerName }}
+  {{- if .Values.gateway.hostname }}
   hostnames:
     - {{ .Values.gateway.hostname | quote }}
+  {{- end }}
   rules:
     - matches:
         - path:

@@ -1,8 +1,8 @@
 """API request and response models."""
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class HealthStatus(BaseModel):
@@ -14,12 +14,17 @@ class CitationPayload(BaseModel):
     snippet: str
 
 
-class QueryRequest(BaseModel):
+class InteractMessage(BaseModel):
+    role: str
+    content: str
+
+
+class InteractRequest(BaseModel):
     thread_id: str
-    query: str
+    messages: Annotated[list[InteractMessage], Field(min_length=1)]
 
 
-class QueryResponse(BaseModel):
+class InteractResponse(BaseModel):
     thread_id: str
     answer: str
     citations: list[CitationPayload]

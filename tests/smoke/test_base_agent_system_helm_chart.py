@@ -4,24 +4,30 @@ from pathlib import Path
 def test_base_agent_system_helm_chart_exists_and_covers_app_contract() -> None:
     chart = Path("infra/helm/base-agent-system/Chart.yaml")
     values = Path("infra/helm/base-agent-system/values.yaml")
+    kind_values = Path("infra/helm/environments/kind/values.yaml")
     deployment = Path("infra/helm/base-agent-system/templates/deployment.yaml")
     service = Path("infra/helm/base-agent-system/templates/service.yaml")
     configmap = Path("infra/helm/base-agent-system/templates/configmap.yaml")
     secret = Path("infra/helm/base-agent-system/templates/secret.yaml")
+    httproute = Path("infra/helm/base-agent-system/templates/httproute.yaml")
 
     assert chart.exists()
     assert values.exists()
+    assert kind_values.exists()
     assert deployment.exists()
     assert service.exists()
     assert configmap.exists()
     assert secret.exists()
+    assert httproute.exists()
 
     chart_text = chart.read_text()
     values_text = values.read_text()
+    kind_values_text = kind_values.read_text()
     deployment_text = deployment.read_text()
     service_text = service.read_text()
     configmap_text = configmap.read_text()
     secret_text = secret.read_text()
+    httproute_text = httproute.read_text()
 
     assert "name: base-agent-system" in chart_text
     assert "repository:" in values_text
@@ -42,6 +48,9 @@ def test_base_agent_system_helm_chart_exists_and_covers_app_contract() -> None:
     assert "readOnlyRootFilesystem: true" in deployment_text
     assert "mountPath: /tmp" in deployment_text
     assert "emptyDir: {}" in deployment_text
+    assert "kind: HTTPRoute" in httproute_text
+    assert "{{- if .Values.gateway.hostname }}" in httproute_text
+    assert 'hostname: ""' in kind_values_text
 
 
 def test_container_image_declares_non_root_user() -> None:

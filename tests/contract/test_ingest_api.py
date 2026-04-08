@@ -14,6 +14,7 @@ def _base_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "BASE_AGENT_SYSTEM_POSTGRES_URI",
         "postgresql://postgres:postgres@localhost:5432/app",
     )
+    monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
 
 
 def test_post_ingest_returns_file_and_chunk_counts_for_explicit_path(

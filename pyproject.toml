@@ -11,6 +11,8 @@ requires-python = ">=3.11"
 dependencies = [
   "fastapi",
   "graphiti-core>=0.28,<0.29",
+  "langchain",
+  "langchain-openai",
   "langgraph>=0.2,<0.3",
   "langgraph-checkpoint-postgres>=2,<3",
   "llama-index>=0.14,<0.15",
