@@ -1,0 +1,44 @@
+:root {
+  color-scheme: dark;
+  --bg: #0a0d10;
+  --panel: rgba(16, 20, 24, 0.82);
+  --panel-strong: rgba(20, 25, 30, 0.94);
+  --text: #f3efe6;
+  --muted: #9fa6ad;
+  --line: rgba(211, 190, 142, 0.18);
+  --accent: #d3be8e;
+  --accent-strong: #f0c96b;
+  --user: #15202b;
+  --assistant: #11161b;
+  --shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background:
+    radial-gradient(circle at top left, rgba(211, 190, 142, 0.14), transparent 32%),
+    radial-gradient(circle at bottom right, rgba(92, 119, 144, 0.2), transparent 28%),
+    linear-gradient(180deg, #090b0e, #0c1116 48%, #0a0d10);
+  color: var(--text);
+  font-family: Georgia, 'Times New Roman', serif;
+}
+
+body {
+  padding: 24px;
+}
+
+a {
+  color: inherit;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}

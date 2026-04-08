@@ -96,11 +96,12 @@ class _LocalRetrievalProvider:
 
 class _BuiltinApiRouterContributor:
     def routers(self) -> Sequence[APIRouter]:
+        from base_agent_system.api.routes_chat import router as chat_router
         from base_agent_system.api.routes_health import router as health_router
         from base_agent_system.api.routes_ingest import router as ingest_router
-        from base_agent_system.api.routes_query import router as query_router
+        from base_agent_system.api.routes_interact import router as interact_router
 
-        return (health_router, ingest_router, query_router)
+        return (health_router, ingest_router, interact_router, chat_router)
 
 
 class _BuiltinCliCommandContributor:

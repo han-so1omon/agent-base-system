@@ -12,6 +12,7 @@ def _base_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "BASE_AGENT_SYSTEM_POSTGRES_URI",
         "postgresql://postgres:postgres@localhost:5432/app",
     )
+    monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
 
 
 def test_create_app_includes_routes_from_registry_contributors(

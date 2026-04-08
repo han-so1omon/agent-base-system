@@ -164,14 +164,31 @@ class WorkflowService:
             checkpointer=self._checkpointer,
         )
 
-    def run(self, *, thread_id: str, query: str) -> dict[str, Any]:
+    def run(
+        self,
+        *,
+        thread_id: str,
+        messages: list[dict[str, str]] | None = None,
+        query: str | None = None,
+    ) -> dict[str, Any]:
+        normalized_messages = messages or _messages_from_query(query)
+        latest_user_message = _latest_user_message_text(normalized_messages)
         invoke_kwargs: dict[str, Any] = {}
         if self._checkpointer is not None:
             invoke_kwargs["config"] = {"configurable": {"thread_id": thread_id}}
 
         result = self._app.invoke(
-            {"thread_id": thread_id, "query": query},
+            {
+                "thread_id": thread_id,
+                "messages": normalized_messages,
+                "query": latest_user_message,
+            },
             **invoke_kwargs,
+        )
+        self._persist_conversation_turns(
+            thread_id=thread_id,
+            messages=normalized_messages,
+            answer=result["answer"],
         )
         return {
             "thread_id": result["thread_id"],
@@ -186,6 +203,31 @@ class WorkflowService:
             self._checkpointer_holder.close()
             self._checkpointer = None
         self._temp_dir.cleanup()
+
+    def _persist_conversation_turns(
+        self,
+        *,
+        thread_id: str,
+        messages: list[dict[str, str]],
+        answer: str,
+    ) -> None:
+        latest_user_message = _latest_user_message_text(messages)
+        if latest_user_message:
+            self._memory_service.store_episode(
+                MemoryEpisode(
+                    thread_id=thread_id,
+                    actor="user",
+                    content=latest_user_message,
+                )
+            )
+        if answer.strip():
+            self._memory_service.store_episode(
+                MemoryEpisode(
+                    thread_id=thread_id,
+                    actor="assistant",
+                    content=answer,
+                )
+            )
 
 
 class _MutableRetrievalService:
@@ -249,6 +291,22 @@ class _InMemoryGraphitiBackend:
     def _require_initialized(self) -> None:
         if not self._initialized:
             raise RuntimeError("memory backend must be initialized before use")
+
+
+def _latest_user_message_text(messages: list[dict[str, str]]) -> str:
+    for message in reversed(messages):
+        if message.get("role") != "user":
+            continue
+        content = message.get("content", "").strip()
+        if content:
+            return content
+    return ""
+
+
+def _messages_from_query(query: str | None) -> list[dict[str, str]]:
+    if not query or not query.strip():
+        return []
+    return [{"role": "user", "content": query.strip()}]
 
 def _tokenize(text: str) -> set[str]:
     return {

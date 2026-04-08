@@ -18,6 +18,7 @@ WorkflowHooks = dict[WorkflowHookStage, Sequence[WorkflowHook]]
 
 class WorkflowState(TypedDict, total=False):
     thread_id: str
+    messages: list[dict[str, str]]
     query: str
     retrieved_docs: list[dict[str, Any]]
     retrieved_memory: list[dict[str, Any]]

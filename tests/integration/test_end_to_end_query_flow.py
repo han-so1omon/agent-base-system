@@ -3,18 +3,22 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 import pytest
 
+from base_agent_system.dependencies import get_settings
 from base_agent_system.runtime_services import _InMemoryGraphitiBackend
 
 
 def _base_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    get_settings.cache_clear()
+    monkeypatch.setenv("BASE_AGENT_SYSTEM_APP_ENV", "test")
     monkeypatch.setenv("BASE_AGENT_SYSTEM_NEO4J_URI", "bolt://localhost:7687")
     monkeypatch.setenv(
         "BASE_AGENT_SYSTEM_POSTGRES_URI",
         "postgresql://postgres:postgres@localhost:5432/app",
     )
+    monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
 
 
-def test_end_to_end_ingest_then_query_then_follow_up_preserves_thread_memory(
+def test_end_to_end_ingest_then_interact_then_follow_up_preserves_thread_memory(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _base_env(monkeypatch)
@@ -46,10 +50,10 @@ def test_end_to_end_ingest_then_query_then_follow_up_preserves_thread_memory(
         assert ingest_response.json()["chunk_count"] >= 1
 
         first_query = client.post(
-            "/query",
+            "/interact",
             json={
                 "thread_id": "thread-e2e",
-                "query": "What does the markdown ingestion service do?",
+                "messages": [{"role": "user", "content": "What does the markdown ingestion service do?"}],
             },
         )
 
@@ -62,20 +66,25 @@ def test_end_to_end_ingest_then_query_then_follow_up_preserves_thread_memory(
         assert first_payload["debug"]["document_hits"] >= 1
 
         preference_query = client.post(
-            "/query",
+            "/interact",
             json={
                 "thread_id": "thread-e2e",
-                "query": "Remember that my preferred deployment target is Kubernetes.",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "Remember that my preferred deployment target is Kubernetes.",
+                    }
+                ],
             },
         )
 
         assert preference_query.status_code == 200
 
         follow_up_query = client.post(
-            "/query",
+            "/interact",
             json={
                 "thread_id": "thread-e2e",
-                "query": "What is my preferred deployment target?",
+                "messages": [{"role": "user", "content": "What is my preferred deployment target?"}],
             },
         )
 
