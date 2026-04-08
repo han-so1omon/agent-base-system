@@ -57,12 +57,36 @@ helmfile -e kind sync
 
 Bootstrap does not install Traefik, Neo4j, Postgres, or the app. Helmfile manages all Helm installs after the cluster is ready.
 
+## Deploy Updated App Images To Kind
+
+After Helmfile has installed the kind environment once, use the dedicated deploy helper for app updates:
+
+```bash
+./scripts/deploy-kind.sh
+```
+
+The deploy helper avoids stale local-image reuse by generating a fresh kind-specific image tag on each run, loading that exact image into the cluster, and passing the same tag to Helm during upgrade.
+
+Optional environment variables:
+
+```bash
+export IMAGE_REPOSITORY=base-agent-system
+export IMAGE_TAG=kind-manual-test
+export KIND_CLUSTER_NAME=base-agent-system
+export KIND_NAMESPACE=base-agent-system
+export KIND_RELEASE_NAME=base-agent-system
+```
+
 ## Host Access After Helmfile
 
 After `helmfile -e kind sync`, the expected host entrypoints are:
 
 - `http://127.0.0.1:8000`
 - `https://127.0.0.1:8443`
+
+The operator chat UI is served from the same host at `http://127.0.0.1:8000/chat`.
+
+The kind environment now omits hostname matching on its `HTTPRoute`, so raw localhost requests work directly during local smoke testing. A custom hosts entry for `base-agent-system.local` is not required for kind.
 
 If those ports are unavailable on the host or the cluster was created before port mappings were added, use a fallback:
 

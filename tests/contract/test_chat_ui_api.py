@@ -12,9 +12,10 @@ def _base_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "BASE_AGENT_SYSTEM_POSTGRES_URI",
         "postgresql://postgres:postgres@localhost:5432/app",
     )
+    monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
 
 
-def test_post_query_returns_answer_citations_thread_id_and_debug(
+def test_post_api_chat_returns_ui_message_wrapped_backend_answer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _base_env(monkeypatch)
@@ -42,31 +43,57 @@ def test_post_query_returns_answer_citations_thread_id_and_debug(
         client.app.state.runtime_state.workflow_service = _StubWorkflowService()
 
         response = client.post(
-            "/query",
+            "/api/chat",
             json={
-                "thread_id": "thread-123",
-                "query": "What does the seed doc say?",
+                "threadId": "thread-ui-123",
+                "messages": [
+                    {
+                        "role": "user",
+                        "parts": [{"type": "text", "text": "First question"}],
+                    },
+                    {
+                        "role": "assistant",
+                        "parts": [{"type": "text", "text": "First answer"}],
+                    },
+                    {
+                        "role": "user",
+                        "parts": [{"type": "text", "text": "Follow-up"}],
+                    }
+                ],
             },
         )
 
     assert response.status_code == 200
     assert response.json() == {
-        "thread_id": "thread-123",
-        "answer": "The seed doc explains markdown ingestion.",
-        "citations": [
+        "id": "thread-ui-123",
+        "messages": [
             {
-                "source": "docs/seed/example.md",
-                "snippet": "This seed document explains the markdown ingestion service.",
+                "id": "assistant-message",
+                "role": "assistant",
+                "parts": [{"type": "text", "text": "The seed doc explains markdown ingestion."}],
+                "metadata": {
+                    "thread_id": "thread-ui-123",
+                    "citations": [
+                        {
+                            "source": "docs/seed/example.md",
+                            "snippet": "This seed document explains the markdown ingestion service.",
+                        }
+                    ],
+                    "debug": {"memory_hits": 1, "document_hits": 1},
+                },
             }
         ],
-        "debug": {"memory_hits": 1, "document_hits": 1},
     }
 
 
 class _StubWorkflowService:
-    def run(self, *, thread_id: str, query: str) -> dict[str, object]:
-        assert thread_id == "thread-123"
-        assert query == "What does the seed doc say?"
+    def run(self, *, thread_id: str, messages: list[dict[str, str]]) -> dict[str, object]:
+        assert thread_id == "thread-ui-123"
+        assert messages == [
+            {"role": "user", "content": "First question"},
+            {"role": "assistant", "content": "First answer"},
+            {"role": "user", "content": "Follow-up"},
+        ]
         return {
             "thread_id": thread_id,
             "answer": "The seed doc explains markdown ingestion.",

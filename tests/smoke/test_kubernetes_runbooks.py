@@ -12,12 +12,19 @@ def test_kubernetes_runbook_describes_helmfile_flows() -> None:
     assert "k3s" in text
     assert "helmfile -e kind sync" in text
     assert "helmfile -e k3s sync" in text
+    assert "./scripts/deploy-kind.sh" in text
     assert "Traefik" in text
     assert "Gateway" in text
     assert "/live" in text
     assert "/ready" in text
     assert "/ingest" in text
-    assert "/query" in text
+    assert "/interact" in text
+    assert "/query" not in text
+    assert "/chat" in text
+    assert "OPENAI_API_KEY" in text
+    assert "AI Gateway" not in text
+    assert "AI_GATEWAY_API_KEY" not in text
+    assert "BASE_AGENT_SYSTEM_LLM_MODEL" in text
     assert "8000" in text
     assert "8443" in text
     assert "port-forward" in text

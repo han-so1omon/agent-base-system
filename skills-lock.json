@@ -241,6 +241,11 @@
       "sourceType": "local",
       "computedHash": "9b446f0c7fe1cfb560b1d34439523b1a76d5f177290007b2c053a1c749a4a8ba"
     },
+    "worktrunk": {
+      "source": "max-sixty/worktrunk",
+      "sourceType": "github",
+      "computedHash": "5c63232074483f774d20aed8060eeeaed7ed53b836674c3f5a340d1a9a1c99b6"
+    },
     "writing-plans": {
       "source": "/Users/Shared/p/ingenierias-lentas/cre-economics/.agents/skills",
       "sourceType": "local",

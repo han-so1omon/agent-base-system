@@ -24,6 +24,7 @@ def _settings() -> Settings:
         neo4j_password="password",
         neo4j_database="neo4j",
         postgres_uri="postgresql://postgres:postgres@localhost:5432/app",
+        app_env="test",
     )
 
 

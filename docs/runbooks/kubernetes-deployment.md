@@ -22,11 +22,21 @@ Bootstrap prepares the cluster. It does not install Helm releases.
 
 ```bash
 cp infra/helm/environments/kind/values.local.example.yaml infra/helm/environments/kind/values.local.yaml
-# edit infra/helm/environments/kind/values.local.yaml with a real provider key
+# edit infra/helm/environments/kind/values.local.yaml with a real OpenAI key
 helmfile -e kind sync
 ```
 
 In `kind`, Helmfile installs Traefik, Neo4j, Postgres checkpoints, and the app chart.
+
+After the initial `helmfile -e kind sync`, use the app deploy helper for subsequent local app changes:
+
+```bash
+./scripts/deploy-kind.sh
+```
+
+This helper builds a fresh kind-specific image tag on every deploy and passes that tag to Helm, which avoids ambiguous rollouts caused by reusing `base-agent-system:0.1.0` with `IfNotPresent`.
+
+The backend chat agent calls OpenAI directly. The Kubernetes deployment therefore needs `OPENAI_API_KEY` and `BASE_AGENT_SYSTEM_LLM_MODEL` configured for the app release.
 
 ## K3s Flow
 
@@ -68,9 +78,9 @@ After releases are ready, verify the app end to end:
 1. Check `GET /live`
 2. Check `GET /ready`
 3. Run `POST /ingest`
-4. Run `POST /query`
+4. Run `POST /interact`
 5. Confirm Neo4j Browser is reachable and inspect persisted graph memory
-6. Restart the app deployment and run `POST /query` again for the same thread
+6. Restart the app deployment and run `POST /interact` again for the same thread
 7. Confirm Neo4j and Postgres both retained data across the restart
 
 The minimum API checks are:
@@ -78,9 +88,14 @@ The minimum API checks are:
 - `/live` returns `200`
 - `/ready` returns `200`
 - `/ingest` succeeds
-- `/query` succeeds
+- `/interact` succeeds
+- `/chat` returns the packaged operator UI
+
+`/interact` and `/chat` both use the backend-owned LangGraph ReAct agent. `/interact` is the canonical backend interaction endpoint, while `/api/chat` is the UI adapter for the packaged chat app.
 
 In `kind`, the preferred host entrypoint is through the bootstrap port mappings on `127.0.0.1:8000` and `127.0.0.1:8443`.
+
+The kind environment is configured for direct localhost access, so `127.0.0.1:8000` works without setting a custom `Host` header or adding a hosts-file entry.
 
 Those host ports map to stable Traefik node ports `30080` and `30443` inside the kind control-plane node.
 
@@ -92,12 +107,16 @@ kubectl port-forward -n base-agent-system svc/base-agent-system 18081:80
 
 Then run the smoke checks against `http://127.0.0.1:18081`.
 
+The same host entrypoint also serves the operator chat UI at:
+
+- `http://127.0.0.1:8000/chat`
+
 ## Kind Persistence Verification
 
 The live `kind` verification sequence is:
 
 1. `POST /ingest` through Traefik with `{"path":"docs/seed"}`
-2. `POST /query` with a stable `thread_id`
+2. `POST /interact` with a stable `thread_id` and `messages`
 3. restart the app deployment:
 
 ```bash
@@ -105,7 +124,7 @@ kubectl rollout restart deployment/base-agent-system -n base-agent-system
 kubectl rollout status deployment/base-agent-system -n base-agent-system
 ```
 
-4. run the same `POST /query` again through Traefik
+4. run the same `POST /interact` again through Traefik
 5. verify Neo4j contains persisted Graphiti episodes for that thread:
 
 ```bash
