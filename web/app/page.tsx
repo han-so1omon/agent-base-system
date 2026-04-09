@@ -107,12 +107,23 @@ export default function Page() {
   }, []);
 
   useEffect(() => {
+    let ignore = false;
     if (!threadId) {
       setHistoryPage(INITIAL_INTERACTION_PAGE);
       setHistoryError(null);
       return;
     }
-    void loadThreadInteractions(threadId);
+    void loadThreadInteractions(threadId).then(page => {
+      if (ignore) return;
+      setHistoryPage({
+        messages: page.messages,
+        has_more: page.has_more,
+        next_before: page.next_before,
+      });
+    });
+    return () => {
+      ignore = true;
+    };
   }, [threadId]);
 
   const liveMessages: ChatMessage[] = messages.map(message => ({
@@ -124,7 +135,14 @@ export default function Page() {
   }));
 
   const historyMessages = historyPage.messages.map(mapInteractionToChatMessage);
-  const displayedMessages = mergeMessages(historyMessages, liveMessages);
+  const displayedMessages = useMemo(() => {
+    if (liveMessages.length === 0) {
+      return historyMessages;
+    }
+    const liveIds = new Set(liveMessages.map(m => m.id));
+    const persistedMessages = historyMessages.filter(m => !liveIds.has(m.id));
+    return [...persistedMessages, ...liveMessages];
+  }, [historyMessages, liveMessages]);
 
   const activeThreadId = assistantMetadata.thread_id ?? threadId;
   const isLoading = status === 'submitted' || status === 'streaming';
@@ -148,7 +166,7 @@ export default function Page() {
     }
   }
 
-  async function loadThreadInteractions(nextThreadId: string, cursor?: { before_ts: string; before_id: string }) {
+  async function loadThreadInteractions(nextThreadId: string, cursor?: { before_ts: string; before_id: string }): Promise<InteractionPage> {
     setHistoryStatus(cursor ? 'loading-more' : 'idle');
     setHistoryError(null);
     const params = new URLSearchParams();
@@ -165,14 +183,10 @@ export default function Page() {
       if (!response.ok) {
         throw new Error(`Failed to load interactions (${response.status})`);
       }
-      const page = (await response.json()) as InteractionPage;
-      setHistoryPage(current => ({
-        messages: cursor ? [...page.messages, ...current.messages] : page.messages,
-        has_more: page.has_more,
-        next_before: page.next_before,
-      }));
+      return (await response.json()) as InteractionPage;
     } catch (loadError) {
       setHistoryError(loadError instanceof Error ? loadError.message : 'Failed to load interactions');
+      return INITIAL_INTERACTION_PAGE;
     } finally {
       setHistoryStatus('idle');
     }
@@ -473,74 +487,3 @@ function parseJsonHeader<T>(value: string | null): T | undefined {
   }
 }
 
-function mergeMessages(historyMessages: ChatMessage[], liveMessages: ChatMessage[]): ChatMessage[] {
-  if (liveMessages.length === 0) {
-    return historyMessages;
-  }
-
-  const liveMessageKeys = new Set(liveMessages.map(message => `${message.role}:${message.text}`));
-  const persistedMessages = historyMessages.filter(message => !liveMessageKeys.has(`${message.role}:${message.text}`));
-
-  return [...persistedMessages, ...liveMessages];
-}
-
-function ToolBadge({ metadata }: { metadata: AgentRunMetadata }) {
-  const label = metadata.tool_call_count === 1 ? '1 tool call' : `${metadata.tool_call_count} tool calls`;
-  const detail = metadata.tools_used.join(', ');
-  return (
-    <div title={detail} style={toolBadgeStyle}>
-      Tools used: {label}
-    </div>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: number }) {
-  return (
-    <div style={{ border: '1px solid var(--line)', padding: 14, background: 'rgba(255,255,255,0.02)' }}>
-      <div style={{ color: 'var(--muted)', marginBottom: 6 }}>{label}</div>
-      <div style={{ fontSize: 28 }}>{value}</div>
-    </div>
-  );
-}
-
-const threadActionButtonStyle = {
-  width: '100%',
-  border: '1px solid rgba(240, 201, 107, 0.35)',
-  background: 'rgba(240,201,107,0.06)',
-  color: 'var(--text)',
-  padding: '12px 14px',
-  textAlign: 'left' as const,
-  cursor: 'pointer',
-};
-
-const threadCardStyle = {
-  width: '100%',
-  border: '1px solid var(--line)',
-  padding: 14,
-  textAlign: 'left' as const,
-  color: 'inherit',
-  cursor: 'pointer',
-};
-
-const toolBadgeStyle = {
-  border: '1px solid rgba(240, 201, 107, 0.35)',
-  color: 'var(--accent)',
-  fontSize: 11,
-  letterSpacing: '0.08em',
-  textTransform: 'uppercase' as const,
-  padding: '4px 8px',
-  whiteSpace: 'nowrap' as const,
-};
-
-const paginationNoticeStyle = {
-  justifySelf: 'center' as const,
-  color: 'var(--muted)',
-  fontSize: 12,
-  letterSpacing: '0.12em',
-  textTransform: 'uppercase' as const,
-};
-
-const loadingNoticeStyle = {
-  ...paginationNoticeStyle,
-  color: 'var(--accent)',
-};

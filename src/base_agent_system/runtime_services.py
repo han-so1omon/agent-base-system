@@ -344,7 +344,13 @@ def _extract_llm_text(content: object) -> str:
     if isinstance(content, str):
         return content
     if isinstance(content, list):
-        return " ".join(str(getattr(part, "text", "")) for part in content).strip()
+        parts = []
+        for part in content:
+            if isinstance(part, dict):
+                parts.append(str(part.get("text", "")))
+            else:
+                parts.append(str(getattr(part, "text", "")))
+        return " ".join(parts).strip()
     return str(content)
 
 
