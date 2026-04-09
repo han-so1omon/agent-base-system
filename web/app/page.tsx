@@ -197,7 +197,7 @@ export default function Page() {
     <main style={{ display: 'grid', gridTemplateColumns: '320px minmax(0, 1fr) 320px', gap: 24 }}>
       <aside
         style={{
-          height: 'calc(100vh - 48px)',
+          height: 'calc(100dvh - 48px)',
           border: '1px solid var(--line)',
           background: 'var(--panel)',
           boxShadow: 'var(--shadow)',
@@ -257,7 +257,7 @@ export default function Page() {
 
       <section
         style={{
-          height: 'calc(100vh - 48px)',
+          height: 'calc(100dvh - 48px)',
           border: '1px solid var(--line)',
           background: 'var(--panel)',
           boxShadow: 'var(--shadow)',
@@ -377,7 +377,7 @@ export default function Page() {
 
       <aside
         style={{
-          height: 'calc(100vh - 48px)',
+          height: 'calc(100dvh - 48px)',
           border: '1px solid var(--line)',
           background: 'var(--panel)',
           boxShadow: 'var(--shadow)',
