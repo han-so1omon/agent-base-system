@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from importlib import import_module
 import os
-from typing import Any, Callable, TypedDict
+from typing import Any, Callable
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import AIMessage
@@ -28,8 +28,9 @@ class AgentWorkflowState(AgentState, total=False):
 
 
 class AgentWorkflowApp:
-    def __init__(self, app: Any, *, tool_context: dict[str, Callable[[list[Any]], None]]) -> None:
+    def __init__(self, app: Any, *, model: Any, tool_context: dict[str, Callable[[list[Any]], None]]) -> None:
         self._app = app
+        self._model = model
         self._tool_context = tool_context
 
     def invoke(self, payload: dict[str, Any], **invoke_kwargs: Any) -> dict[str, Any]:
@@ -37,28 +38,52 @@ class AgentWorkflowApp:
         messages = list(payload.get("messages", []))
         debug = {"document_hits": 0, "memory_hits": 0, "tool_calls": 0}
         citations: list[dict[str, str]] = []
+        tools_used: list[str] = []
 
         def record_docs(results: list[Any]) -> None:
             debug["document_hits"] = len(results)
             debug["tool_calls"] += 1
+            tools_used.append("search_docs")
             citations.clear()
             citations.extend(_build_citations(results))
 
         def record_memory(results: list[Any]) -> None:
             debug["memory_hits"] = len(results)
             debug["tool_calls"] += 1
+            tools_used.append("search_memory")
 
         self._tool_context["docs_result_handler"] = record_docs
         self._tool_context["memory_result_handler"] = record_memory
-        result = self._app.invoke(
-            {"messages": messages, "thread_id": thread_id},
-            **invoke_kwargs,
-        )
+        if _should_bypass_tools(messages):
+            direct_model = self._model.bind(max_tokens=120) if hasattr(self._model, "bind") else self._model
+            answer = _extract_direct_answer(direct_model.invoke(_to_direct_model_messages(messages)))
+            return {
+                "thread_id": thread_id,
+                "answer": answer,
+                "citations": citations,
+                "debug": debug,
+                "interaction": {
+                    "used_tools": False,
+                    "tool_call_count": 0,
+                    "tools_used": [],
+                    "steps": [],
+                    "intermediate_reasoning": None,
+                },
+            }
+
+        result = self._app.invoke({"messages": messages, "thread_id": thread_id}, **invoke_kwargs)
         return {
             "thread_id": thread_id,
             "answer": _extract_answer(result.get("messages", [])),
             "citations": citations,
             "debug": debug,
+            "interaction": {
+                "used_tools": debug["tool_calls"] > 0,
+                "tool_call_count": debug["tool_calls"],
+                "tools_used": tools_used,
+                "steps": [],
+                "intermediate_reasoning": result.get("intermediate_reasoning"),
+            },
         }
 
 
@@ -85,6 +110,7 @@ def build_workflow(
         "docs_result_handler": lambda results: None,
         "memory_result_handler": lambda results: None,
     }
+    model = _build_model(settings)
     tools = [
         build_search_docs_tool(
             retrieval_service,
@@ -96,7 +122,7 @@ def build_workflow(
         ),
     ]
     app = create_react_agent(
-        model=_build_model(settings),
+        model=model,
         tools=tools,
         checkpointer=checkpointer,
         state_schema=AgentWorkflowState,
@@ -108,7 +134,7 @@ def build_workflow(
             " thread_id."
         ),
     )
-    return AgentWorkflowApp(app, tool_context=tool_context)
+    return AgentWorkflowApp(app, model=model, tool_context=tool_context)
 
 
 def _build_model(settings: Settings) -> ChatOpenAI:
@@ -117,6 +143,65 @@ def _build_model(settings: Settings) -> ChatOpenAI:
         model=settings.llm_model,
         api_key=api_key,
     )
+
+
+def _should_bypass_tools(messages: list[Any]) -> bool:
+    latest_user_message = ""
+    for message in reversed(messages):
+        if isinstance(message, dict) and message.get("role") == "user":
+            latest_user_message = str(message.get("content", "")).strip()
+            if latest_user_message:
+                break
+
+    if not latest_user_message:
+        return False
+
+    normalized = latest_user_message.lower()
+    retrieval_signals = (
+        "seed doc",
+        "seed document",
+        "markdown ingestion",
+        "this system",
+        "document",
+        "docs",
+        "in the docs",
+        "remember",
+        "preferred deployment target",
+        "what is my",
+        "our thread",
+    )
+    return not any(signal in normalized for signal in retrieval_signals)
+
+
+def _to_direct_model_messages(messages: list[Any]) -> list[tuple[str, str]]:
+    converted: list[tuple[str, str]] = [
+        (
+            "system",
+            "Answer directly and concisely in 2 short paragraphs maximum unless the user explicitly asks for more detail.",
+        )
+    ]
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        role = str(message.get("role", "")).strip()
+        content = str(message.get("content", "")).strip()
+        if role and content:
+            converted.append((role, content))
+    return converted
+
+
+def _extract_direct_answer(message: Any) -> str:
+    if isinstance(message, AIMessage):
+        content = message.content
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            return "".join(
+                part.get("text", "")
+                for part in content
+                if isinstance(part, dict) and part.get("type") == "text"
+            )
+    return str(getattr(message, "content", ""))
 
 
 def _build_citations(results: list[Any]) -> list[dict[str, str]]:

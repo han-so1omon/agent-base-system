@@ -56,8 +56,15 @@ The frontend architecture is intentionally thin:
 - `web/app/page.tsx` provides the operator chat UI
 - FastAPI remains the system of record for retrieval, memory, persistence, and LLM invocation
 - the backend LangGraph ReAct agent uses OpenAI directly with `gpt-4o-mini` by default
+- `/interact` remains the canonical execution API
+- `/api/chat` stays the write and stream adapter for the packaged UI
+- `/threads` and `/threads/{thread_id}/interactions` provide read-only thread browsing for the sidebar and history view
 
 For the local `kind` deployment, the packaged chat UI is also served through the cluster ingress at `http://127.0.0.1:8000/chat`.
+
+The packaged UI now creates a new thread on the first operator message, lists recent threads in a sidebar, and reopens existing threads by calling the thread browsing APIs before continuing the same `thread_id` through `/api/chat`.
+
+Public thread browsing intentionally excludes internal reasoning. Debug interaction details live behind `/debug/threads/{thread_id}/interactions/{interaction_id}` and are disabled in production by default unless `BASE_AGENT_SYSTEM_DEBUG_INTERACTIONS_ENABLED=true` is set.
 
 To run it locally:
 

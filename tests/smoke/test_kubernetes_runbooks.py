@@ -19,8 +19,12 @@ def test_kubernetes_runbook_describes_helmfile_flows() -> None:
     assert "/ready" in text
     assert "/ingest" in text
     assert "/interact" in text
+    assert "/threads" in text
+    assert "/threads/{thread_id}/interactions" in text
+    assert "/debug/threads/" in text
     assert "/query" not in text
     assert "/chat" in text
+    assert "disabled in production by default" in text
     assert "OPENAI_API_KEY" in text
     assert "AI Gateway" not in text
     assert "AI_GATEWAY_API_KEY" not in text

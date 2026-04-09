@@ -71,3 +71,32 @@ def _state_schema():
     from base_agent_system.workflow.graph import AgentWorkflowState
 
     return AgentWorkflowState
+
+
+def test_agent_workflow_app_returns_structured_interaction_metadata() -> None:
+    class _StubApp:
+        def invoke(self, payload: dict[str, object], **kwargs) -> dict[str, object]:
+            del kwargs
+            return {
+                "messages": [],
+                "intermediate_reasoning": {"kind": "chain_of_thought", "content": "internal"},
+            }
+
+    from base_agent_system.workflow.graph import AgentWorkflowApp
+
+    app = AgentWorkflowApp(_StubApp(), model=None, tool_context={})
+
+    result = app.invoke(
+        {
+            "thread_id": "thread-123",
+            "messages": [{"role": "user", "content": "What does the seed doc say?"}],
+        }
+    )
+
+    assert result["interaction"] == {
+        "used_tools": False,
+        "tool_call_count": 0,
+        "tools_used": [],
+        "steps": [],
+        "intermediate_reasoning": {"kind": "chain_of_thought", "content": "internal"},
+    }

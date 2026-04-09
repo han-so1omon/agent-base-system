@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import pytest
 
 from base_agent_system.checkpointing import build_postgres_checkpointer
 from base_agent_system.config import Settings

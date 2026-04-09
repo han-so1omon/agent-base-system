@@ -31,6 +31,39 @@ class InteractResponse(BaseModel):
     debug: dict[str, int]
 
 
+class ThreadSummaryPayload(BaseModel):
+    thread_id: str
+    preview: str
+
+
+class AgentRunMetadataPayload(BaseModel):
+    used_tools: bool
+    tool_call_count: int
+    tools_used: list[str]
+
+
+class InteractionPayload(BaseModel):
+    id: str
+    thread_id: str
+    kind: str
+    content: str
+    created_at: str
+    metadata: AgentRunMetadataPayload | None = None
+
+
+class InteractionPagePayload(BaseModel):
+    messages: list[InteractionPayload]
+    has_more: bool
+    next_before: dict[str, str] | None
+
+
+class DebugInteractionPayload(BaseModel):
+    thread_id: str
+    interaction_id: str
+    steps: list[dict[str, object]]
+    reasoning: dict[str, object] | None
+
+
 class IngestRequest(BaseModel):
     path: str | None = None
 
