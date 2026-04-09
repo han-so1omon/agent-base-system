@@ -675,7 +675,10 @@ def test_firecrawl_tools_added_when_configured(monkeypatch: pytest.MonkeyPatch) 
     from base_agent_system.config import Settings
     from base_agent_system.workflow.graph import build_workflow
     
-    settings = Settings(**{**_settings().__dict__, "firecrawl_api_url": "http://firecrawl:3002"})
+    settings = Settings(**{**_settings().__dict__, "firecrawl_api_url": "http://firecrawl:3002", "app_env": "development"})
+    
+    # We must patch _should_use_synthetic_workflow because app_env "development" still might not be enough if it checks for neo4j_uri etc correctly
+    monkeypatch.setattr("base_agent_system.workflow.graph._should_use_synthetic_workflow", lambda s: False)
     
     captured_tools = []
     
