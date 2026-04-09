@@ -670,3 +670,30 @@ class _CompiledWorkflow:
 class _TempDir:
     def cleanup(self) -> None:
         return None
+
+def test_firecrawl_tools_added_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    from base_agent_system.config import Settings
+    from base_agent_system.workflow.graph import build_workflow
+    
+    settings = Settings(**{**_settings().__dict__, "firecrawl_api_url": "http://firecrawl:3002"})
+    
+    captured_tools = []
+    
+    def fake_create_react_agent(model, tools, **kwargs):
+        captured_tools.extend(tools)
+        return type('MockAgent', (), {})()
+
+    monkeypatch.setattr("base_agent_system.workflow.graph.create_react_agent", fake_create_react_agent)
+    monkeypatch.setattr("base_agent_system.workflow.graph._build_model", lambda settings: object())
+
+    build_workflow(
+        settings=settings,
+        retrieval_service=_StubRetrievalService([]),
+        memory_service=_StubMemoryService([]),
+    )
+    
+    tool_names = [getattr(t, "name", "") for t in captured_tools]
+    assert "firecrawl_scrape" in tool_names
+    assert "firecrawl_search" in tool_names
+    assert "firecrawl_crawl" in tool_names
+    assert "firecrawl_status" in tool_names
