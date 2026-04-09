@@ -28,7 +28,7 @@ def create_app_state(
     extension_registry: ExtensionRegistry | None = None,
 ) -> AppState:
     runtime_settings = settings or get_settings()
-    ingest_service, workflow_service = build_runtime_services(
+    ingest_service, workflow_service, interaction_repository = build_runtime_services(
         runtime_settings,
         memory_backend=memory_backend,
         extension_registry=extension_registry,
@@ -37,6 +37,7 @@ def create_app_state(
         settings=runtime_settings,
         workflow_service=workflow_service,
         ingest_service=ingest_service,
+        interaction_repository=interaction_repository,
     )
 
 
@@ -52,6 +53,7 @@ def shutdown_app_state(app_state: AppState) -> None:
         app_state.workflow_service.close()
     app_state.workflow_service = None
     app_state.ingest_service = None
+    app_state.interaction_repository = None
 
 
 def dependency_status(app_state: AppState) -> dict[str, bool]:

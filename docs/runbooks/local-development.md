@@ -72,6 +72,16 @@ Expected: non-empty `citations` and `debug.document_hits >= 1`.
 
 The backend owns LLM invocation. The canonical backend interaction API is `/interact`, and the web chat UI routes through `/api/chat`, which adapts into the same LangGraph ReAct agent using OpenAI directly with `gpt-4o-mini` by default.
 
+The UI now uses separate read-only browsing endpoints for transcript history:
+
+- `GET /threads` lists recent thread summaries for the sidebar
+- `GET /threads/{thread_id}/interactions?limit=20` loads the newest visible interactions first
+- `before_ts` plus `before_id` acts as the upward-pagination cursor for older interactions
+
+The packaged chat page starts a new thread automatically on the first operator message, then reuses that `thread_id` on later sends so LangGraph continuation and semantic memory stay aligned.
+
+Debug-only step and reasoning details are available at `/debug/threads/{thread_id}/interactions/{interaction_id}`, but that endpoint is disabled in production by default. Enable it only with explicit `BASE_AGENT_SYSTEM_DEBUG_INTERACTIONS_ENABLED=true` in a trusted environment.
+
 8. Verify persistent memory with:
 
 ```bash

@@ -86,6 +86,50 @@ def test_post_api_chat_returns_ui_message_wrapped_backend_answer(
     }
 
 
+def test_post_api_chat_returns_error_for_new_thread_when_topic_preview_generation_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _base_env(monkeypatch)
+
+    class _CheckpointerHolder:
+        def open(self) -> object | None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    from base_agent_system.api.app import create_app
+
+    monkeypatch.setattr(
+        "base_agent_system.runtime_services.build_postgres_checkpointer",
+        lambda postgres_uri: _CheckpointerHolder(),
+    )
+
+    app = create_app(
+        initialize_dependencies=False,
+        memory_backend=_InMemoryGraphitiBackend(),
+    )
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        client.app.state.runtime_state.workflow_service = _FailingPreviewWorkflowService()
+
+        response = client.post(
+            "/api/chat",
+            json={
+                "threadId": "thread-ui-fail",
+                "messages": [
+                    {
+                        "role": "user",
+                        "parts": [{"type": "text", "text": "Teach me about Taiwan"}],
+                    }
+                ],
+            },
+        )
+
+    assert response.status_code == 500
+    assert "topic preview" in response.text.lower()
+
+
 class _StubWorkflowService:
     def run(self, *, thread_id: str, messages: list[dict[str, str]]) -> dict[str, object]:
         assert thread_id == "thread-ui-123"
@@ -105,3 +149,10 @@ class _StubWorkflowService:
             ],
             "debug": {"memory_hits": 1, "document_hits": 1},
         }
+
+
+class _FailingPreviewWorkflowService:
+    def run(self, *, thread_id: str, messages: list[dict[str, str]]) -> dict[str, object]:
+        assert thread_id == "thread-ui-fail"
+        assert messages == [{"role": "user", "content": "Teach me about Taiwan"}]
+        raise ValueError("topic preview generation failed")

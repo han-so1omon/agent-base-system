@@ -25,6 +25,8 @@ def test_load_settings_reads_typed_values(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setenv("BASE_AGENT_SYSTEM_CHUNK_OVERLAP", "64")
     monkeypatch.setenv("BASE_AGENT_SYSTEM_GRAPHITI_TELEMETRY_ENABLED", "false")
     monkeypatch.setenv("BASE_AGENT_SYSTEM_API_PORT", "9000")
+    monkeypatch.setenv("BASE_AGENT_SYSTEM_DEBUG_INTERACTIONS_ENABLED", "true")
+    monkeypatch.setenv("BASE_AGENT_SYSTEM_INTERACTIONS_PAGE_SIZE", "15")
 
     settings = load_settings()
 
@@ -47,6 +49,8 @@ def test_load_settings_reads_typed_values(monkeypatch: pytest.MonkeyPatch) -> No
     assert settings.chunk_overlap == 64
     assert settings.graphiti_telemetry_enabled is False
     assert settings.api_port == 9000
+    assert settings.debug_interactions_enabled is True
+    assert settings.interactions_page_size == 15
 
 
 def test_settings_require_neo4j_and_postgres_urls(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from base_agent_system.config import Settings
+from base_agent_system.interactions.repository import InMemoryInteractionRepository
 from base_agent_system.memory.graphiti_service import GraphitiMemoryService
 from base_agent_system.memory.models import MemoryEpisode
 from base_agent_system.runtime_services import _InMemoryGraphitiBackend, build_runtime_services
@@ -163,10 +164,15 @@ def test_runtime_memory_selection_defaults_to_live_graphiti(monkeypatch: pytest.
         self._initialized = True
 
     monkeypatch.setattr(GraphitiMemoryService, "initialize_indices", fake_initialize)
+    monkeypatch.setattr(
+        "base_agent_system.runtime_services.PostgresInteractionRepository",
+        lambda postgres_uri: InMemoryInteractionRepository(),
+    )
 
-    ingest_service, workflow_service = build_runtime_services(settings)
+    ingest_service, workflow_service, interaction_repository = build_runtime_services(settings)
 
     assert observed["backend"] is None
+    assert interaction_repository is not None
     workflow_service.close()
 
 
@@ -185,12 +191,13 @@ def test_runtime_memory_selection_uses_injected_backend_for_tests(
     monkeypatch.setattr(GraphitiMemoryService, "initialize_indices", fake_initialize)
     backend = _InMemoryGraphitiBackend()
 
-    ingest_service, workflow_service = build_runtime_services(
+    ingest_service, workflow_service, interaction_repository = build_runtime_services(
         settings,
         memory_backend=backend,
     )
 
     assert observed["backend"] is backend
+    assert interaction_repository is not None
     workflow_service.close()
 
 
@@ -208,12 +215,14 @@ def test_workflow_service_persists_user_and_assistant_turns_after_agent_run(
         provider_api_key="test-key",
     )
     memory_service.initialize_indices()
+    interaction_repository = InMemoryInteractionRepository()
 
     workflow_service = WorkflowService(
         settings=settings,
         retrieval_service=SimpleNamespace(),
         memory_service=memory_service,
         temp_dir=SimpleNamespace(cleanup=lambda: None),
+        interaction_repository=interaction_repository,
         workflow_builder=lambda **kwargs: _WorkflowStub(),
     )
 
@@ -227,6 +236,150 @@ def test_workflow_service_persists_user_and_assistant_turns_after_agent_run(
     assert backend.episodes[0].thread_id == "thread-persist-123"
     assert "preferred deployment target" in backend.episodes[0].content.lower()
     assert "kubernetes" in backend.episodes[1].content.lower()
+    threads = interaction_repository.list_threads(limit=10)
+    page = interaction_repository.list_interactions(thread_id="thread-persist-123", limit=20)
+    debug = interaction_repository.get_debug_interaction(
+        thread_id="thread-persist-123",
+        interaction_id=page.items[-1].id,
+    )
+    assert threads[0].thread_id == "thread-persist-123"
+    assert [item.kind for item in page.items] == ["user", "agent_run"]
+    assert page.items[-1].metadata is not None
+    assert page.items[-1].metadata.tool_call_count == 2
+    assert debug is not None
+    assert debug.reasoning == {"kind": "chain_of_thought", "content": "internal"}
+
+
+def test_workflow_service_generates_topic_preview_once_from_first_user_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from base_agent_system.runtime_services import WorkflowService
+
+    class _TopicPreviewWorkflowStub:
+        def invoke(self, payload: dict[str, object], **kwargs) -> dict[str, object]:
+            del kwargs
+            return {
+                "thread_id": payload["thread_id"],
+                "answer": "Taiwan is known for night markets and semiconductors.",
+                "citations": [],
+                "debug": {"document_hits": 0, "memory_hits": 0},
+                "interaction": {
+                    "used_tools": False,
+                    "tool_call_count": 0,
+                    "tools_used": [],
+                    "steps": [],
+                    "intermediate_reasoning": {"kind": "chain_of_thought", "content": "internal"},
+                },
+            }
+
+    settings = _settings()
+    _stub_checkpointer(monkeypatch)
+    backend = _InMemoryGraphitiBackend()
+    memory_service = GraphitiMemoryService(
+        settings=settings,
+        backend=backend,
+        provider_api_key="test-key",
+    )
+    memory_service.initialize_indices()
+    interaction_repository = InMemoryInteractionRepository()
+    topic_preview_calls: list[str] = []
+
+    workflow_service = WorkflowService(
+        settings=settings,
+        retrieval_service=SimpleNamespace(),
+        memory_service=memory_service,
+        temp_dir=SimpleNamespace(cleanup=lambda: None),
+        interaction_repository=interaction_repository,
+        workflow_builder=lambda **kwargs: _TopicPreviewWorkflowStub(),
+        topic_preview_generator=lambda text: topic_preview_calls.append(text) or "Learn about Taiwan",
+    )
+
+    workflow_service.run(
+        thread_id="thread-topic-preview",
+        messages=[{"role": "user", "content": "I want to learn about Taiwan and its history."}],
+    )
+    workflow_service.run(
+        thread_id="thread-topic-preview",
+        messages=[{"role": "user", "content": "Tell me more about the night markets."}],
+    )
+
+    threads = interaction_repository.list_threads(limit=10)
+
+    assert topic_preview_calls == ["I want to learn about Taiwan and its history."]
+    assert threads[0].preview == "Learn about Taiwan"
+
+
+def test_workflow_service_fails_new_thread_when_topic_preview_generation_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from base_agent_system.runtime_services import WorkflowService
+
+    class _TopicPreviewWorkflowStub:
+        def invoke(self, payload: dict[str, object], **kwargs) -> dict[str, object]:
+            del kwargs
+            return {
+                "thread_id": payload["thread_id"],
+                "answer": "Taiwan is known for night markets and semiconductors.",
+                "citations": [],
+                "debug": {"document_hits": 0, "memory_hits": 0},
+                "interaction": {
+                    "used_tools": False,
+                    "tool_call_count": 0,
+                    "tools_used": [],
+                    "steps": [],
+                    "intermediate_reasoning": {"kind": "chain_of_thought", "content": "internal"},
+                },
+            }
+
+    settings = _settings()
+    _stub_checkpointer(monkeypatch)
+    backend = _InMemoryGraphitiBackend()
+    memory_service = GraphitiMemoryService(
+        settings=settings,
+        backend=backend,
+        provider_api_key="test-key",
+    )
+    memory_service.initialize_indices()
+    interaction_repository = InMemoryInteractionRepository()
+
+    workflow_service = WorkflowService(
+        settings=settings,
+        retrieval_service=SimpleNamespace(),
+        memory_service=memory_service,
+        temp_dir=SimpleNamespace(cleanup=lambda: None),
+        interaction_repository=interaction_repository,
+        workflow_builder=lambda **kwargs: _TopicPreviewWorkflowStub(),
+        topic_preview_generator=lambda text: (_ for _ in ()).throw(ValueError(f"invalid preview for {text}")),
+    )
+
+    with pytest.raises(ValueError, match="invalid preview"):
+        workflow_service.run(
+            thread_id="thread-topic-fail",
+            messages=[{"role": "user", "content": "teach me about taiwan"}],
+        )
+
+    assert interaction_repository.list_threads(limit=10) == []
+    assert interaction_repository.list_interactions(thread_id="thread-topic-fail", limit=20).items == []
+
+
+def test_normalize_topic_preview_rejects_copied_opening_words() -> None:
+    from base_agent_system.runtime_services import _normalize_topic_preview
+
+    with pytest.raises(ValueError, match="repeats opening words"):
+        _normalize_topic_preview("teach me about taiwan", source_text="teach me about taiwan and its history")
+
+
+def test_normalize_topic_preview_rejects_invalid_lengths() -> None:
+    from base_agent_system.runtime_services import _normalize_topic_preview
+
+    with pytest.raises(ValueError, match="2 to 5 words"):
+        _normalize_topic_preview("Taiwan", source_text="teach me about taiwan")
+
+    with pytest.raises(ValueError, match="2 to 5 words"):
+        _normalize_topic_preview(
+            "Taiwan overview and history and culture today",
+            source_text="teach me about taiwan",
+        )
 
 
 def test_live_graphiti_backend_uses_basic_search_signature() -> None:
@@ -334,4 +487,11 @@ class _WorkflowStub:
             "answer": "I will remember that your preferred deployment target is Kubernetes.",
             "citations": [],
             "debug": {"document_hits": 0, "memory_hits": 0, "tool_calls": 0},
+            "interaction": {
+                "used_tools": True,
+                "tool_call_count": 2,
+                "tools_used": ["search_memory", "search_docs"],
+                "steps": [{"type": "tool_call", "tool": "search_memory"}],
+                "intermediate_reasoning": {"kind": "chain_of_thought", "content": "internal"},
+            },
         }

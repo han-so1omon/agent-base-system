@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import pytest
+from langchain_core.messages import AIMessage
 
 from base_agent_system.config import Settings
+from base_agent_system.interactions.repository import InMemoryInteractionRepository
 from base_agent_system.memory.models import MemoryEpisode, MemorySearchResult
 from base_agent_system.runtime_services import (
     WorkflowService,
@@ -97,6 +99,48 @@ def test_workflow_builds_with_langgraph_when_dependency_is_available() -> None:
     assert hasattr(app, "invoke")
 
 
+def test_langgraph_workflow_bypasses_tools_for_general_knowledge_questions(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "live-key-for-test")
+    tool_agent_calls: list[dict[str, object]] = []
+    direct_model_calls: list[list[tuple[str, str]]] = []
+    bind_calls: list[dict[str, object]] = []
+
+    class _DirectModel:
+        def bind(self, **kwargs):
+            bind_calls.append(kwargs)
+            return self
+
+        def invoke(self, messages):
+            direct_model_calls.append(messages)
+            return AIMessage(content="Taiwan overview")
+
+    class _ToolAgent:
+        def invoke(self, payload: dict[str, object], **kwargs):
+            tool_agent_calls.append({"payload": payload, "kwargs": kwargs})
+            return {"messages": [AIMessage(content="Tool answer")], "intermediate_reasoning": None}
+
+    monkeypatch.setattr("base_agent_system.workflow.graph._build_model", lambda settings: _DirectModel())
+    monkeypatch.setattr("base_agent_system.workflow.graph.create_react_agent", lambda **kwargs: _ToolAgent())
+
+    workflow = build_workflow(
+        settings=Settings(**{**_settings().__dict__, "app_env": "development"}),
+        retrieval_service=_StubRetrievalService([]),
+        memory_service=_StubMemoryService([]),
+    )
+
+    result = workflow.invoke({"thread_id": "thread-123", "messages": [{"role": "user", "content": "teach me about taiwan"}]})
+
+    assert result["answer"] == "Taiwan overview"
+    assert result["debug"]["tool_calls"] == 0
+    assert bind_calls == [{"max_tokens": 120}]
+    assert len(direct_model_calls) == 1
+    assert direct_model_calls[0][0][0] == "system"
+    assert "concise" in direct_model_calls[0][0][1].lower()
+    assert "2 short paragraphs" in direct_model_calls[0][0][1]
+    assert direct_model_calls[0][1] == ("user", "teach me about taiwan")
+    assert tool_agent_calls == []
+
+
 def test_workflow_supports_constrained_hooks_around_retrieval_and_synthesis() -> None:
     events: list[str] = []
     retrieval = _StubRetrievalService(
@@ -160,6 +204,13 @@ def test_runtime_workflow_service_delegates_to_real_workflow_builder(monkeypatch
                 "answer": "ok",
                 "citations": [],
                 "debug": {"document_hits": 0, "memory_hits": 0},
+                "interaction": {
+                    "used_tools": False,
+                    "tool_call_count": 0,
+                    "tools_used": [],
+                    "steps": [],
+                    "intermediate_reasoning": {"kind": "chain_of_thought", "content": "internal"},
+                },
             }
 
     def fake_build_workflow(**kwargs):
@@ -184,6 +235,7 @@ def test_runtime_workflow_service_delegates_to_real_workflow_builder(monkeypatch
         retrieval_service=_StubRetrievalService([]),
         memory_service=_StubMemoryService([]),
         temp_dir=_TempDir(),
+        interaction_repository=InMemoryInteractionRepository(),
         workflow_builder=fake_build_workflow,
     )
 
@@ -221,8 +273,12 @@ def test_build_runtime_services_bootstraps_docs_seed_retrieval_on_startup(
         "base_agent_system.runtime_services.build_postgres_checkpointer",
         lambda postgres_uri: _CheckpointerHolder(),
     )
+    monkeypatch.setattr(
+        "base_agent_system.runtime_services.PostgresInteractionRepository",
+        lambda postgres_uri: InMemoryInteractionRepository(),
+    )
 
-    ingest_service, workflow_service = build_runtime_services(
+    ingest_service, workflow_service, interaction_repository = build_runtime_services(
         _settings(),
         memory_backend=backend,
     )
@@ -235,6 +291,7 @@ def test_build_runtime_services_bootstraps_docs_seed_retrieval_on_startup(
     assert result["debug"]["document_hits"] >= 1
     assert result["citations"]
     assert result["citations"][0]["source"].endswith("docs/seed/example.md")
+    assert interaction_repository.list_threads(limit=10)
 
     workflow_service.close()
 
@@ -262,10 +319,90 @@ def test_build_runtime_services_prefers_live_graphiti_memory(monkeypatch: pytest
         "base_agent_system.runtime_services.build_postgres_checkpointer",
         lambda postgres_uri: _CheckpointerHolder(),
     )
+    monkeypatch.setattr(
+        "base_agent_system.runtime_services.PostgresInteractionRepository",
+        lambda postgres_uri: InMemoryInteractionRepository(),
+    )
 
-    ingest_service, workflow_service = build_runtime_services(_settings())
+    ingest_service, workflow_service, interaction_repository = build_runtime_services(_settings())
 
     assert observed["backend"] is None
+    assert interaction_repository is not None
+    workflow_service.close()
+
+
+def test_build_runtime_services_uses_postgres_interaction_repository_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    class _CheckpointerHolder:
+        def open(self) -> object | None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    class _InteractionRepository:
+        def initialize_schema(self) -> None:
+            self.initialized = True
+
+        def close(self) -> None:
+            return None
+
+    def fake_initialize(self) -> None:
+        self._initialized = True
+
+    monkeypatch.setattr(
+        "base_agent_system.memory.graphiti_service.GraphitiMemoryService.initialize_indices",
+        fake_initialize,
+    )
+    monkeypatch.setattr(
+        "base_agent_system.runtime_services.build_postgres_checkpointer",
+        lambda postgres_uri: _CheckpointerHolder(),
+    )
+    monkeypatch.setattr(
+        "base_agent_system.runtime_services.PostgresInteractionRepository",
+        lambda postgres_uri: _InteractionRepository(),
+    )
+
+    ingest_service, workflow_service, interaction_repository = build_runtime_services(_settings())
+
+    assert type(interaction_repository).__name__ == "_InteractionRepository"
+    assert interaction_repository.initialized is True
+    workflow_service.close()
+
+
+def test_build_runtime_services_uses_in_memory_interaction_repository_for_injected_test_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    class _CheckpointerHolder:
+        def open(self) -> object | None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    def fake_initialize(self) -> None:
+        self._initialized = True
+
+    monkeypatch.setattr(
+        "base_agent_system.memory.graphiti_service.GraphitiMemoryService.initialize_indices",
+        fake_initialize,
+    )
+    monkeypatch.setattr(
+        "base_agent_system.runtime_services.build_postgres_checkpointer",
+        lambda postgres_uri: _CheckpointerHolder(),
+    )
+
+    ingest_service, workflow_service, interaction_repository = build_runtime_services(
+        _settings(),
+        memory_backend=_InMemoryGraphitiBackend(),
+    )
+
+    assert isinstance(interaction_repository, InMemoryInteractionRepository)
     workflow_service.close()
 
 
@@ -297,12 +434,13 @@ def test_build_runtime_services_uses_explicit_in_memory_backend_for_tests(
 
     backend = _InMemoryGraphitiBackend()
 
-    ingest_service, workflow_service = build_runtime_services(
+    ingest_service, workflow_service, interaction_repository = build_runtime_services(
         _settings(),
         memory_backend=backend,
     )
 
     assert observed["backend"] is backend
+    assert interaction_repository is not None
     workflow_service.close()
 
 
@@ -342,6 +480,7 @@ def test_runtime_service_factories_build_individual_services(monkeypatch: pytest
         retrieval_service=retrieval_service,
         memory_service=memory_service,
         temp_dir=temp_dir,
+        interaction_repository=InMemoryInteractionRepository(),
     )
 
     result = ingest_service.run(path="docs/seed")
@@ -372,15 +511,26 @@ def test_build_runtime_services_accepts_custom_service_factories(
         observed["ingest_connector"] = connector
         return _StubIngestService()
 
-    def fake_workflow_factory(settings, *, retrieval_service, memory_service, temp_dir, workflow_builder):
+    def fake_workflow_factory(
+        settings,
+        *,
+        retrieval_service,
+        memory_service,
+        temp_dir,
+        workflow_builder,
+        interaction_repository,
+        topic_preview_generator,
+    ):
         observed["workflow_settings"] = settings
         observed["workflow_retrieval_service"] = retrieval_service
         observed["workflow_memory_service"] = memory_service
         observed["workflow_temp_dir"] = temp_dir
         observed["workflow_builder"] = workflow_builder
+        observed["interaction_repository"] = interaction_repository
+        observed["topic_preview_generator"] = topic_preview_generator
         return _StubWorkflowService()
 
-    ingest_service, workflow_service = build_runtime_services(
+    ingest_service, workflow_service, interaction_repository = build_runtime_services(
         _settings(),
         memory_backend=_InMemoryGraphitiBackend(),
         retrieval_service_factory=fake_retrieval_factory,
@@ -391,6 +541,8 @@ def test_build_runtime_services_accepts_custom_service_factories(
 
     assert isinstance(ingest_service, _StubIngestService)
     assert isinstance(workflow_service, _StubWorkflowService)
+    assert interaction_repository is not None
+    assert observed["interaction_repository"] is interaction_repository
     assert observed["retrieval_settings"] == _settings()
     assert observed["memory_settings"] == _settings()
     assert observed["ingest_settings"] == _settings()
@@ -440,6 +592,13 @@ class _StubWorkflowService:
             "answer": query,
             "citations": [],
             "debug": {"document_hits": 0, "memory_hits": 0},
+            "interaction": {
+                "used_tools": False,
+                "tool_call_count": 0,
+                "tools_used": [],
+                "steps": [],
+                "intermediate_reasoning": None,
+            },
         }
 
     def close(self) -> None:
