@@ -13,4 +13,5 @@ class AppState:
     postgres_pool: object | None = None
     workflow_service: object | None = None
     ingest_service: object | None = None
+    interaction_repository: object | None = None
     readiness_checks: Callable[[], dict[str, bool]] | None = None

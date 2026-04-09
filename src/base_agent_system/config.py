@@ -23,6 +23,8 @@ class Settings:
     chunk_overlap: int = 200
     graphiti_telemetry_enabled: bool = False
     api_port: int = 8000
+    debug_interactions_enabled: bool = False
+    interactions_page_size: int = 20
 
     def __post_init__(self) -> None:
         missing_fields = []
@@ -54,6 +56,8 @@ def load_settings() -> Settings:
         chunk_overlap=int(_get_env("BASE_AGENT_SYSTEM_CHUNK_OVERLAP", "200")),
         graphiti_telemetry_enabled=_get_bool_env("BASE_AGENT_SYSTEM_GRAPHITI_TELEMETRY_ENABLED", False),
         api_port=int(_get_env("BASE_AGENT_SYSTEM_API_PORT", "8000")),
+        debug_interactions_enabled=_get_bool_env("BASE_AGENT_SYSTEM_DEBUG_INTERACTIONS_ENABLED", False),
+        interactions_page_size=int(_get_env("BASE_AGENT_SYSTEM_INTERACTIONS_PAGE_SIZE", "20")),
     )
 
 

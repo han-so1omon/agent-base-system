@@ -1,17 +1,70 @@
 'use client';
 
 import { useChat } from '@ai-sdk/react';
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, UIEvent, useEffect, useRef, useState } from 'react';
+
+type Citation = {
+  source: string;
+  snippet: string;
+};
 
 type AssistantMetadata = {
-  citations?: Array<{ source: string; snippet: string }>;
+  citations?: Citation[];
   debug?: Record<string, number>;
   thread_id?: string;
 };
 
+type ThreadSummary = {
+  thread_id: string;
+  preview: string;
+};
+
+type AgentRunMetadata = {
+  used_tools: boolean;
+  tool_call_count: number;
+  tools_used: string[];
+};
+
+type InteractionMessage = {
+  id: string;
+  thread_id: string;
+  kind: 'user' | 'agent_run';
+  content: string;
+  created_at: string;
+  metadata?: AgentRunMetadata | null;
+};
+
+type InteractionPage = {
+  messages: InteractionMessage[];
+  has_more: boolean;
+  next_before: { before_ts: string; before_id: string } | null;
+};
+
+type ChatMessage = {
+  id: string;
+  role: 'user' | 'assistant';
+  text: string;
+  metadata?: AgentRunMetadata | null;
+  source: 'history' | 'live';
+};
+
+const INITIAL_ASSISTANT_METADATA: AssistantMetadata = {};
+const INITIAL_INTERACTION_PAGE: InteractionPage = {
+  messages: [],
+  has_more: false,
+  next_before: null,
+};
+
 export default function Page() {
-  const [threadId, setThreadId] = useState('play-thread');
-  const [assistantMetadata, setAssistantMetadata] = useState<AssistantMetadata>({});
+  const [threadId, setThreadId] = useState<string | undefined>();
+  const [assistantMetadata, setAssistantMetadata] = useState<AssistantMetadata>(INITIAL_ASSISTANT_METADATA);
+  const [threads, setThreads] = useState<ThreadSummary[]>([]);
+  const [historyPage, setHistoryPage] = useState<InteractionPage>(INITIAL_INTERACTION_PAGE);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [threadStatus, setThreadStatus] = useState<'idle' | 'loading'>('idle');
+  const [historyStatus, setHistoryStatus] = useState<'idle' | 'loading-more'>('idle');
+  const historyContainerRef = useRef<HTMLDivElement | null>(null);
+  const pendingThreadIdRef = useRef<string | undefined>(undefined);
 
   const {
     messages,
@@ -22,47 +75,211 @@ export default function Page() {
     status,
   } = useChat({
     api: '/api/chat',
+    headers: {
+      accept: 'text/plain',
+    },
     streamProtocol: 'text',
     maxSteps: 1,
-    experimental_prepareRequestBody: ({ messages }) => ({
-      threadId,
-      messages: messages.map(message => ({
+    experimental_prepareRequestBody: ({ messages: nextMessages }) => ({
+      threadId: pendingThreadIdRef.current ?? threadId ?? createThreadId(),
+      messages: nextMessages.map(message => ({
         role: message.role,
         parts: [{ type: 'text', text: extractMessageText(message.content) }],
       })),
     }),
     onResponse(response) {
+      const resolvedThreadId = response.headers.get('x-thread-id') ?? threadId ?? undefined;
+      pendingThreadIdRef.current = undefined;
+      if (resolvedThreadId) {
+        setThreadId(resolvedThreadId);
+      }
       setAssistantMetadata({
-        thread_id: response.headers.get('x-thread-id') ?? threadId,
+        thread_id: resolvedThreadId,
         citations: parseJsonHeader(response.headers.get('x-citations')) ?? [],
         debug: parseJsonHeader(response.headers.get('x-debug')) ?? {},
       });
+      void loadThreads();
     },
   });
 
-  const chatMessages = useMemo(
-    () =>
-      messages.map(message => ({
-        id: message.id,
-        role: message.role,
-        text: extractMessageText(message.content),
-      })),
-    [messages],
-  );
+  useEffect(() => {
+    void loadThreads();
+  }, []);
 
+  useEffect(() => {
+    let ignore = false;
+    if (!threadId) {
+      setHistoryPage(INITIAL_INTERACTION_PAGE);
+      setHistoryError(null);
+      return;
+    }
+    void loadThreadInteractions(threadId).then(page => {
+      if (ignore) return;
+      setHistoryPage({
+        messages: page.messages,
+        has_more: page.has_more,
+        next_before: page.next_before,
+      });
+    });
+    return () => {
+      ignore = true;
+    };
+  }, [threadId]);
+
+  const liveMessages: ChatMessage[] = messages.map(message => ({
+    id: message.id,
+    role: message.role === 'user' ? 'user' : 'assistant',
+    text: extractMessageText(message.content),
+    metadata: undefined,
+    source: 'live',
+  }));
+
+  const historyMessages = historyPage.messages.map(mapInteractionToChatMessage);
+  const displayedMessages = useMemo(() => {
+    if (liveMessages.length === 0) {
+      return historyMessages;
+    }
+    const liveIds = new Set(liveMessages.map(m => m.id));
+    const persistedMessages = historyMessages.filter(m => !liveIds.has(m.id));
+    return [...persistedMessages, ...liveMessages];
+  }, [historyMessages, liveMessages]);
+
+  const activeThreadId = assistantMetadata.thread_id ?? threadId;
   const isLoading = status === 'submitted' || status === 'streaming';
 
+  async function loadThreads() {
+    setThreadStatus('loading');
+    try {
+      const response = await fetch('/threads');
+      if (!response.ok) {
+        throw new Error(`Failed to load threads (${response.status})`);
+      }
+      const nextThreads = (await response.json()) as ThreadSummary[];
+      setThreads(nextThreads);
+      if (!threadId && nextThreads.length > 0) {
+        setThreadId(nextThreads[0].thread_id);
+      }
+    } catch (loadError) {
+      setHistoryError(loadError instanceof Error ? loadError.message : 'Failed to load threads');
+    } finally {
+      setThreadStatus('idle');
+    }
+  }
+
+  async function loadThreadInteractions(nextThreadId: string, cursor?: { before_ts: string; before_id: string }): Promise<InteractionPage> {
+    setHistoryStatus(cursor ? 'loading-more' : 'idle');
+    setHistoryError(null);
+    const params = new URLSearchParams();
+    if (cursor) {
+      params.set('before_ts', cursor.before_ts);
+      params.set('before_id', cursor.before_id);
+    }
+
+    try {
+      const path = params.size > 0
+        ? `/threads/${encodeURIComponent(nextThreadId)}/interactions?${params.toString()}`
+        : `/threads/${encodeURIComponent(nextThreadId)}/interactions`;
+      const response = await fetch(path);
+      if (!response.ok) {
+        throw new Error(`Failed to load interactions (${response.status})`);
+      }
+      return (await response.json()) as InteractionPage;
+    } catch (loadError) {
+      setHistoryError(loadError instanceof Error ? loadError.message : 'Failed to load interactions');
+      return INITIAL_INTERACTION_PAGE;
+    } finally {
+      setHistoryStatus('idle');
+    }
+  }
+
+  async function handleHistoryScroll(event: UIEvent<HTMLDivElement>) {
+    const element = event.currentTarget;
+    if (element.scrollTop > 48 || !threadId || !historyPage.has_more || !historyPage.next_before || historyStatus !== 'idle') {
+      return;
+    }
+    const previousHeight = element.scrollHeight;
+    await loadThreadInteractions(threadId, historyPage.next_before);
+    requestAnimationFrame(() => {
+      if (!historyContainerRef.current) {
+        return;
+      }
+      historyContainerRef.current.scrollTop = historyContainerRef.current.scrollHeight - previousHeight;
+    });
+  }
+
   return (
-    <main style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.5fr) minmax(280px, 0.8fr)', gap: 24 }}>
+    <main style={{ display: 'grid', gridTemplateColumns: '320px minmax(0, 1fr) 320px', gap: 24 }}>
+      <aside
+        style={{
+          height: 'calc(100dvh - 48px)',
+          border: '1px solid var(--line)',
+          background: 'var(--panel)',
+          boxShadow: 'var(--shadow)',
+          backdropFilter: 'blur(18px)',
+          padding: 24,
+          display: 'grid',
+          gridTemplateRows: 'auto 1fr auto',
+          gap: 18,
+          overflow: 'hidden',
+        }}
+      >
+        <div>
+          <div style={{ color: 'var(--accent)', fontSize: 12, letterSpacing: '0.24em', textTransform: 'uppercase', marginBottom: 12 }}>
+            Recent Threads
+          </div>
+          <div style={{ color: 'var(--muted)', lineHeight: 1.6, marginBottom: 16 }}>
+            New thread starts on first message. Reopen any thread to continue the same LangGraph execution path.
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setThreadId(undefined);
+              setAssistantMetadata(INITIAL_ASSISTANT_METADATA);
+            }}
+            style={threadActionButtonStyle}
+          >
+            Start Empty Draft
+          </button>
+        </div>
+
+        <div style={{ display: 'grid', gap: 10, overflowY: 'auto', minHeight: 0, alignContent: 'start' }}>
+          {threads.map(thread => {
+            const isActive = thread.thread_id === activeThreadId;
+            return (
+              <button
+                key={thread.thread_id}
+                type="button"
+                onClick={() => setThreadId(thread.thread_id)}
+                style={{
+                  ...threadCardStyle,
+                  background: isActive ? 'rgba(240,201,107,0.12)' : 'rgba(255,255,255,0.02)',
+                  borderColor: isActive ? 'rgba(240,201,107,0.45)' : 'var(--line)',
+                }}
+              >
+                <div style={{ color: 'var(--text)', fontSize: 15, marginBottom: 8, lineHeight: 1.4 }}>{thread.preview}</div>
+                <div style={{ color: 'var(--muted)', fontSize: 13, lineHeight: 1.5 }}>{thread.thread_id}</div>
+              </button>
+            );
+          })}
+          {threads.length === 0 ? <div style={{ color: 'var(--muted)', lineHeight: 1.6 }}>No saved threads yet.</div> : null}
+        </div>
+
+        <div style={{ color: 'var(--muted)', fontSize: 13 }}>
+          {threadStatus === 'loading' ? 'Refreshing thread list...' : 'Thread browser uses /threads and keeps /api/chat as the write path.'}
+        </div>
+      </aside>
+
       <section
         style={{
-          minHeight: 'calc(100vh - 48px)',
+          height: 'calc(100dvh - 48px)',
           border: '1px solid var(--line)',
           background: 'var(--panel)',
           boxShadow: 'var(--shadow)',
           backdropFilter: 'blur(18px)',
           display: 'grid',
           gridTemplateRows: 'auto 1fr auto',
+          minWidth: 0,
+          overflow: 'hidden',
         }}
       >
         <header style={{ padding: 24, borderBottom: '1px solid var(--line)' }}>
@@ -72,13 +289,23 @@ export default function Page() {
           <h1 style={{ margin: '14px 0 12px', fontSize: 'clamp(2rem, 4vw, 4.4rem)', lineHeight: 0.95, fontWeight: 500 }}>
             Operator Chat
           </h1>
-          <p style={{ margin: 0, maxWidth: 640, color: 'var(--muted)', fontSize: 16, lineHeight: 1.6 }}>
-            Query retrieval, memory, and persistence through the existing FastAPI backend. Watch citations and debug hits change as the thread ID evolves.
+          <p style={{ margin: 0, maxWidth: 680, color: 'var(--muted)', fontSize: 16, lineHeight: 1.6 }}>
+            Browse recent threads, reopen older runs, and keep tool-aware answers streaming through the same FastAPI adapter.
           </p>
         </header>
 
-        <div style={{ padding: 24, overflowY: 'auto', display: 'grid', gap: 16 }}>
-          {chatMessages.length === 0 ? (
+        <div
+          ref={historyContainerRef}
+          onScroll={handleHistoryScroll}
+          style={{ padding: 24, overflowY: 'auto', display: 'grid', gap: 16, minHeight: 0 }}
+        >
+          {historyPage.has_more ? (
+            <div style={historyStatus === 'loading-more' ? loadingNoticeStyle : paginationNoticeStyle}>
+              {historyStatus === 'loading-more' ? 'Loading older interactions...' : 'Scroll upward to load older interactions'}
+            </div>
+          ) : null}
+
+          {displayedMessages.length === 0 ? (
             <div style={{ border: '1px dashed var(--line)', padding: 20, background: 'rgba(255,255,255,0.02)' }}>
               <div style={{ color: 'var(--accent)', marginBottom: 8 }}>Try one of these</div>
               <div style={{ color: 'var(--muted)', lineHeight: 1.7 }}>
@@ -89,7 +316,7 @@ export default function Page() {
             </div>
           ) : null}
 
-          {chatMessages.map(message => (
+          {displayedMessages.map(message => (
             <article
               key={message.id}
               style={{
@@ -100,36 +327,31 @@ export default function Page() {
                 background: message.role === 'user' ? 'var(--user)' : 'var(--assistant)',
               }}
             >
-              <div style={{ color: 'var(--accent)', fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 10 }}>
-                {message.role === 'user' ? 'Operator' : 'System'}
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
+                <div style={{ color: 'var(--accent)', fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase' }}>
+                  {message.role === 'user' ? 'Operator' : 'System'}
+                </div>
+                {message.metadata?.used_tools ? <ToolBadge metadata={message.metadata} /> : null}
               </div>
               <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>{message.text}</div>
             </article>
           ))}
+
+          {historyError ? <div style={{ color: '#ff8b8b' }}>{historyError}</div> : null}
         </div>
 
         <form
           onSubmit={(event: FormEvent<HTMLFormElement>) => {
             event.preventDefault();
+            if (!threadId) {
+              const generatedThreadId = createThreadId();
+              pendingThreadIdRef.current = generatedThreadId;
+              setThreadId(generatedThreadId);
+            }
             handleSubmit(event);
           }}
           style={{ borderTop: '1px solid var(--line)', padding: 20, display: 'grid', gap: 12 }}
         >
-          <label style={{ display: 'grid', gap: 8 }}>
-            <span style={{ color: 'var(--muted)', fontSize: 13, letterSpacing: '0.14em', textTransform: 'uppercase' }}>Thread ID</span>
-            <input
-              value={threadId}
-              onChange={event => setThreadId(event.target.value)}
-              style={{
-                width: '100%',
-                border: '1px solid var(--line)',
-                background: 'var(--panel-strong)',
-                color: 'var(--text)',
-                padding: '12px 14px',
-              }}
-            />
-          </label>
-
           <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12 }}>
             <input
               name="prompt"
@@ -160,13 +382,16 @@ export default function Page() {
               {isLoading ? 'Working' : 'Send'}
             </button>
           </div>
+          <div style={{ color: 'var(--muted)', fontSize: 13 }}>
+            Active thread: <code>{activeThreadId ?? 'new thread pending first message'}</code>
+          </div>
           {error ? <div style={{ color: '#ff8b8b' }}>{error.message}</div> : null}
         </form>
       </section>
 
       <aside
         style={{
-          minHeight: 'calc(100vh - 48px)',
+          height: 'calc(100dvh - 48px)',
           border: '1px solid var(--line)',
           background: 'var(--panel)',
           boxShadow: 'var(--shadow)',
@@ -181,7 +406,7 @@ export default function Page() {
           <div style={{ color: 'var(--accent)', fontSize: 12, letterSpacing: '0.24em', textTransform: 'uppercase', marginBottom: 12 }}>
             Thread
           </div>
-          <div style={{ color: 'var(--text)', fontSize: 20 }}>{assistantMetadata.thread_id ?? threadId}</div>
+          <div style={{ color: 'var(--text)', fontSize: 20 }}>{activeThreadId ?? 'Awaiting first operator prompt'}</div>
         </section>
 
         <section>
@@ -216,6 +441,20 @@ export default function Page() {
   );
 }
 
+function mapInteractionToChatMessage(message: InteractionMessage): ChatMessage {
+  return {
+    id: message.id,
+    role: message.kind === 'user' ? 'user' : 'assistant',
+    text: message.content,
+    metadata: message.metadata,
+    source: 'history',
+  };
+}
+
+function createThreadId(): string {
+  return `thread-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 function extractMessageText(content: unknown): string {
   if (typeof content === 'string') {
     return content;
@@ -248,11 +487,3 @@ function parseJsonHeader<T>(value: string | null): T | undefined {
   }
 }
 
-function Metric({ label, value }: { label: string; value: number }) {
-  return (
-    <div style={{ border: '1px solid var(--line)', padding: 14, background: 'rgba(255,255,255,0.02)' }}>
-      <div style={{ color: 'var(--muted)', marginBottom: 6 }}>{label}</div>
-      <div style={{ fontSize: 28 }}>{value}</div>
-    </div>
-  );
-}

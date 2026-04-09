@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 import re
 from tempfile import TemporaryDirectory
 from typing import Any, Callable
 
+from langchain_openai import ChatOpenAI
+
 from base_agent_system.config import Settings
 from base_agent_system.checkpointing import build_postgres_checkpointer
 from base_agent_system.extensions.registry import ExtensionRegistry, create_default_registry
+from base_agent_system.interactions.repository import InMemoryInteractionRepository, PostgresInteractionRepository
 from base_agent_system.memory.graphiti_service import GraphitiMemoryBackend
 from base_agent_system.ingestion.pipeline import ingest_markdown_directory
 from base_agent_system.memory.graphiti_service import GraphitiMemoryService
@@ -22,6 +26,7 @@ RetrievalServiceFactory = Callable[[Settings], tuple["_MutableRetrievalService",
 MemoryServiceFactory = Callable[[Settings], GraphitiMemoryService]
 IngestServiceFactory = Callable[..., "IngestService"]
 WorkflowServiceFactory = Callable[..., "WorkflowService"]
+TopicPreviewGenerator = Callable[[str], str]
 
 
 def build_runtime_services(
@@ -33,7 +38,7 @@ def build_runtime_services(
     memory_service_factory: Callable[..., GraphitiMemoryService] | None = None,
     ingest_service_factory: IngestServiceFactory | None = None,
     workflow_service_factory: WorkflowServiceFactory | None = None,
-) -> tuple[object, object]:
+) -> tuple[object, object, object]:
     registry = extension_registry or create_default_registry(settings)
     retrieval_builder = retrieval_service_factory or build_retrieval_service
     memory_builder = memory_service_factory or build_memory_service
@@ -52,14 +57,22 @@ def build_runtime_services(
         connector=registry.get_ingestion_connector("markdown"),
     )
     ingest_service.run(path=str(settings.docs_seed_path))
+    interaction_repository = (
+        InMemoryInteractionRepository()
+        if memory_backend is not None
+        else PostgresInteractionRepository(postgres_uri=settings.postgres_uri)
+    )
+    interaction_repository.initialize_schema()
     workflow_service = workflow_builder_factory(
         settings,
         retrieval_service=retrieval_service,
         memory_service=memory_service,
         temp_dir=temp_dir,
         workflow_builder=registry.get_workflow_builder("default"),
+        interaction_repository=interaction_repository,
+        topic_preview_generator=(lambda text: "Generated topic") if memory_backend is not None else _build_topic_preview_generator(settings),
     )
-    return ingest_service, workflow_service
+    return ingest_service, workflow_service, interaction_repository
 
 
 def build_retrieval_service(settings: Settings) -> tuple["_MutableRetrievalService", TemporaryDirectory[str]]:
@@ -102,13 +115,17 @@ def build_workflow_service(
     retrieval_service: "_MutableRetrievalService",
     memory_service: GraphitiMemoryService,
     temp_dir: TemporaryDirectory[str],
+    interaction_repository: object,
     workflow_builder: object = build_workflow,
+    topic_preview_generator: TopicPreviewGenerator | None = None,
 ) -> "WorkflowService":
     return WorkflowService(
         settings=settings,
         retrieval_service=retrieval_service,
         memory_service=memory_service,
         temp_dir=temp_dir,
+        interaction_repository=interaction_repository,
+        topic_preview_generator=topic_preview_generator,
         workflow_builder=workflow_builder,
     )
 
@@ -147,10 +164,14 @@ class WorkflowService:
         retrieval_service: "_MutableRetrievalService",
         memory_service: GraphitiMemoryService,
         temp_dir: TemporaryDirectory[str],
+        interaction_repository: object,
         workflow_builder: object,
+        topic_preview_generator: TopicPreviewGenerator | None = None,
     ) -> None:
         self._memory_service = memory_service
         self._temp_dir = temp_dir
+        self._interaction_repository = interaction_repository
+        self._topic_preview_generator = topic_preview_generator or (lambda text: "Generated topic")
         self._checkpointer = None
         self._checkpointer_holder = None
         if settings.postgres_uri:
@@ -190,11 +211,18 @@ class WorkflowService:
             messages=normalized_messages,
             answer=result["answer"],
         )
+        self._persist_interactions(
+            thread_id=thread_id,
+            messages=normalized_messages,
+            answer=result["answer"],
+            interaction=result.get("interaction", {}),
+        )
         return {
             "thread_id": result["thread_id"],
             "answer": result["answer"],
             "citations": result["citations"],
             "debug": result["debug"],
+            "interaction": result.get("interaction", {}),
         }
 
     def close(self) -> None:
@@ -229,6 +257,34 @@ class WorkflowService:
                 )
             )
 
+    def _persist_interactions(
+        self,
+        *,
+        thread_id: str,
+        messages: list[dict[str, str]],
+        answer: str,
+        interaction: dict[str, Any],
+    ) -> None:
+        latest_user_message = _latest_user_message_text(messages)
+        if latest_user_message:
+            topic_preview = None
+            if hasattr(self._interaction_repository, "has_thread") and not self._interaction_repository.has_thread(thread_id=thread_id):
+                topic_preview = _require_topic_preview(self._topic_preview_generator, latest_user_message)
+            self._interaction_repository.store_user_interaction(
+                thread_id=thread_id,
+                content=latest_user_message,
+                topic_preview=topic_preview,
+            )
+        if answer.strip():
+            self._interaction_repository.store_agent_run_interaction(
+                thread_id=thread_id,
+                content=answer,
+                tool_call_count=int(interaction.get("tool_call_count", 0)),
+                tools_used=list(interaction.get("tools_used", [])),
+                steps=list(interaction.get("steps", [])),
+                intermediate_reasoning=interaction.get("intermediate_reasoning"),
+            )
+
 
 class _MutableRetrievalService:
     def __init__(self) -> None:
@@ -241,6 +297,61 @@ class _MutableRetrievalService:
         if self._index is None:
             return []
         return self._index.query(text, top_k=top_k)
+
+
+def _build_topic_preview_generator(settings: Settings) -> TopicPreviewGenerator:
+    model = ChatOpenAI(
+        model=settings.openai_model,
+        api_key=os.getenv(settings.openai_api_key_name, "") or "missing-api-key",
+    )
+
+    def generate(text: str) -> str:
+        result = model.invoke(
+            [
+                (
+                    "system",
+                    "Return a concise thread topic title for the user's first message. Use plain text only, 2 to 5 words maximum, and do not simply repeat the opening words verbatim.",
+                ),
+                ("human", text),
+            ]
+        )
+        return _normalize_topic_preview(_extract_llm_text(getattr(result, "content", "")), source_text=text)
+
+    return generate
+
+
+def _require_topic_preview(generator: TopicPreviewGenerator, text: str) -> str:
+    return _normalize_topic_preview(generator(text), source_text=text)
+
+
+def _normalize_topic_preview(value: str, *, source_text: str) -> str:
+    candidate = value.strip().strip(".,:;!?-\"'`()[]{}")
+    words = re.findall(r"[A-Za-z0-9']+", candidate)
+    if not words:
+        raise ValueError("topic preview generation failed: empty output")
+    if not 2 <= len(words) <= 5:
+        raise ValueError("topic preview generation failed: output must contain 2 to 5 words")
+
+    normalized_preview = " ".join(words)
+    source_words = re.findall(r"[A-Za-z0-9']+", source_text.strip())
+    opening_words = " ".join(source_words[: len(words)])
+    if opening_words and normalized_preview.casefold() == opening_words.casefold():
+        raise ValueError("topic preview generation failed: output repeats opening words")
+    return normalized_preview
+
+
+def _extract_llm_text(content: object) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for part in content:
+            if isinstance(part, dict):
+                parts.append(str(part.get("text", "")))
+            else:
+                parts.append(str(getattr(part, "text", "")))
+        return " ".join(parts).strip()
+    return str(content)
 
 
 class _InMemoryGraphitiBackend:

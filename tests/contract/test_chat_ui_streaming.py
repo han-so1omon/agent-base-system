@@ -75,8 +75,6 @@ def test_post_api_chat_can_stream_plain_text_with_metadata_headers(
             "snippet": "This seed document explains the markdown ingestion service.",
         }
     ]
-
-
 class _StubWorkflowService:
     def run(self, *, thread_id: str, messages: list[dict[str, str]]) -> dict[str, object]:
         assert thread_id == "thread-stream-123"
