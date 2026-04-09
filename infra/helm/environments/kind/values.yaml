@@ -1,3 +1,6 @@
+firecrawl:
+  enabled: true
+
 installTraefik: true
 gatewayClassName: traefik
 traefikPorts:
