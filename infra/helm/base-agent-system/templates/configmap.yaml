@@ -9,3 +9,6 @@ data:
   BASE_AGENT_SYSTEM_APP_ENV: {{ .Values.config.appEnv | quote }}
   BASE_AGENT_SYSTEM_NEO4J_URI: {{ .Values.config.neo4jUri | quote }}
   BASE_AGENT_SYSTEM_LLM_MODEL: {{ .Values.config.llmModel | quote }}
+{{- if .Values.firecrawl.enabled }}
+  BASE_AGENT_SYSTEM_FIRECRAWL_API_URL: "http://firecrawl-api:3002"
+{{- end }}
