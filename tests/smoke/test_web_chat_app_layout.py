@@ -36,7 +36,8 @@ def test_web_chat_app_layout_supports_ai_sdk_adapter() -> None:
 def test_web_chat_app_keeps_history_visible_during_live_turns() -> None:
     page_text = Path("web/app/page.tsx").read_text()
 
-    assert "mergeMessages(historyMessages, liveMessages)" in page_text
+    assert "new Set(liveMessages.map" in page_text
+    assert "historyMessages.filter" in page_text
     assert "if (liveMessages.length > 0)" not in page_text
 
 
