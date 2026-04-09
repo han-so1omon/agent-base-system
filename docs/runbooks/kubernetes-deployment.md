@@ -89,9 +89,20 @@ The minimum API checks are:
 - `/ready` returns `200`
 - `/ingest` succeeds
 - `/interact` succeeds
+- `/threads` returns `200`
+- `/threads/{thread_id}/interactions` returns `200`
 - `/chat` returns the packaged operator UI
 
 `/interact` and `/chat` both use the backend-owned LangGraph ReAct agent. `/interact` is the canonical backend interaction endpoint, while `/api/chat` is the UI adapter for the packaged chat app.
+
+The packaged chat UI also reads thread history through:
+
+- `GET /threads`
+- `GET /threads/{thread_id}/interactions`
+
+The UI creates a new thread on the first message automatically, then continues that same `thread_id` on later sends. Reopening a thread in the sidebar should show the newest interactions first and page older interactions while scrolling upward.
+
+Internal run steps and stored reasoning are never part of the public thread APIs. They are only available through `/debug/threads/{thread_id}/interactions/{interaction_id}`, and that endpoint should stay disabled in production by default unless a trusted operator explicitly enables `BASE_AGENT_SYSTEM_DEBUG_INTERACTIONS_ENABLED=true`.
 
 In `kind`, the preferred host entrypoint is through the bootstrap port mappings on `127.0.0.1:8000` and `127.0.0.1:8443`.
 
@@ -110,6 +121,11 @@ Then run the smoke checks against `http://127.0.0.1:18081`.
 The same host entrypoint also serves the operator chat UI at:
 
 - `http://127.0.0.1:8000/chat`
+
+Useful thread checks through the same host entrypoint:
+
+- `http://127.0.0.1:8000/threads`
+- `http://127.0.0.1:8000/threads/<thread_id>/interactions?limit=20`
 
 ## Kind Persistence Verification
 
