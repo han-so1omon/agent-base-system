@@ -141,3 +141,64 @@ class _StubWorkflowService:
             ],
             "debug": {"memory_hits": 1, "document_hits": 1},
         }
+
+
+def test_post_interact_passes_request_metadata_to_workflow(monkeypatch: pytest.MonkeyPatch) -> None:
+    _base_env(monkeypatch)
+
+    class _CheckpointerHolder:
+        def open(self) -> object | None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    from base_agent_system.api.app import create_app
+
+    monkeypatch.setattr(
+        "base_agent_system.runtime_services.build_postgres_checkpointer",
+        lambda postgres_uri: _CheckpointerHolder(),
+    )
+
+    workflow_service = _MetadataWorkflowService()
+    app = create_app(initialize_dependencies=False, memory_backend=_InMemoryGraphitiBackend())
+
+    with TestClient(app) as client:
+        client.app.state.runtime_state.workflow_service = workflow_service
+        response = client.post(
+            "/interact",
+            json={
+                "thread_id": "thread-123",
+                "messages": [{"role": "user", "content": "What does the seed doc say?"}],
+            },
+        )
+
+    assert response.status_code == 200
+    assert workflow_service.request_metadata == {
+        "route": "/interact",
+        "message_count": 1,
+        "streaming": False,
+        "thread_id": "thread-123",
+    }
+
+
+class _MetadataWorkflowService:
+    def __init__(self) -> None:
+        self.request_metadata: dict[str, object] | None = None
+
+    def run(
+        self,
+        *,
+        thread_id: str,
+        messages: list[dict[str, str]],
+        request_metadata: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        assert thread_id == "thread-123"
+        assert messages == [{"role": "user", "content": "What does the seed doc say?"}]
+        self.request_metadata = request_metadata
+        return {
+            "thread_id": thread_id,
+            "answer": "The seed doc explains markdown ingestion.",
+            "citations": [],
+            "debug": {"memory_hits": 0, "document_hits": 0},
+        }

@@ -213,3 +213,62 @@ class _SpawnWorkflowService:
                 }
             },
         }
+
+
+def test_post_api_chat_passes_request_metadata_to_workflow(monkeypatch: pytest.MonkeyPatch) -> None:
+    _base_env(monkeypatch)
+
+    class _CheckpointerHolder:
+        def open(self) -> object | None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    from base_agent_system.api.app import create_app
+
+    monkeypatch.setattr(
+        "base_agent_system.runtime_services.build_postgres_checkpointer",
+        lambda postgres_uri: _CheckpointerHolder(),
+    )
+
+    workflow_service = _ChatMetadataWorkflowService()
+    app = create_app(initialize_dependencies=False, memory_backend=_InMemoryGraphitiBackend())
+
+    with TestClient(app) as client:
+        client.app.state.runtime_state.workflow_service = workflow_service
+        response = client.post(
+            "/api/chat",
+            json={
+                "threadId": "thread-ui-meta",
+                "messages": [{"role": "user", "parts": [{"type": "text", "text": "Follow-up"}]}],
+            },
+        )
+
+    assert response.status_code == 200
+    assert workflow_service.request_metadata == {
+        "route": "/api/chat",
+        "message_count": 1,
+        "streaming": False,
+        "thread_id": "thread-ui-meta",
+    }
+
+
+class _ChatMetadataWorkflowService:
+    def __init__(self) -> None:
+        self.request_metadata: dict[str, object] | None = None
+
+    def run(
+        self,
+        *,
+        thread_id: str,
+        messages: list[dict[str, str]],
+        request_metadata: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        self.request_metadata = request_metadata
+        return {
+            "thread_id": thread_id,
+            "answer": "Metadata captured.",
+            "citations": [],
+            "debug": {"memory_hits": 0, "document_hits": 0},
+        }
