@@ -102,3 +102,67 @@ class _StubWorkflowService:
                 }
             },
         }
+
+
+def test_post_api_chat_streaming_passes_request_metadata_to_workflow(monkeypatch: pytest.MonkeyPatch) -> None:
+    _base_env(monkeypatch)
+
+    class _CheckpointerHolder:
+        def open(self) -> object | None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    from base_agent_system.api.app import create_app
+
+    monkeypatch.setattr(
+        "base_agent_system.runtime_services.build_postgres_checkpointer",
+        lambda postgres_uri: _CheckpointerHolder(),
+    )
+
+    workflow_service = _StreamingMetadataWorkflowService()
+    app = create_app(initialize_dependencies=False, memory_backend=_InMemoryGraphitiBackend())
+
+    with TestClient(app) as client:
+        client.app.state.runtime_state.workflow_service = workflow_service
+        with client.stream(
+            "POST",
+            "/api/chat",
+            headers={"accept": "text/plain"},
+            json={
+                "threadId": "thread-stream-meta",
+                "messages": [{"role": "user", "parts": [{"type": "text", "text": "Stream metadata"}]}],
+            },
+        ) as response:
+            body = "".join(response.iter_text())
+
+    assert response.status_code == 200
+    assert body == "Streaming metadata answer."
+    assert workflow_service.request_metadata == {
+        "route": "/api/chat",
+        "message_count": 1,
+        "streaming": True,
+        "thread_id": "thread-stream-meta",
+    }
+
+
+class _StreamingMetadataWorkflowService:
+    def __init__(self) -> None:
+        self.request_metadata: dict[str, object] | None = None
+
+    def run(
+        self,
+        *,
+        thread_id: str,
+        messages: list[dict[str, str]],
+        request_metadata: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        self.request_metadata = request_metadata
+        return {
+            "thread_id": thread_id,
+            "answer": "Streaming metadata answer.",
+            "citations": [],
+            "debug": {"memory_hits": 0, "document_hits": 0, "tool_calls": 0},
+            "interaction": {},
+        }

@@ -42,6 +42,22 @@ Current non-goals:
 
 ## Development
 
+Opik is optional and disabled by default. When enabled, the system treats one interaction branch execution as the canonical trace unit, with `thread_id` used for grouping and parent-child interaction ids used for tree correlation.
+
+Environment variables:
+
+```bash
+export BASE_AGENT_SYSTEM_OPIK_ENABLED=true
+export BASE_AGENT_SYSTEM_OPIK_PROJECT_NAME=base-agent-system
+export BASE_AGENT_SYSTEM_OPIK_WORKSPACE=...
+export BASE_AGENT_SYSTEM_OPIK_API_KEY_NAME=OPIK_API_KEY
+export BASE_AGENT_SYSTEM_OPIK_URL=https://opik.example.com
+export BASE_AGENT_SYSTEM_OPIK_USE_LOCAL=false
+export OPIK_API_KEY=...
+```
+
+Evaluation metrics are intentionally extensible. Runtime tracing records primitive signals such as tool count, retrieval hits, citation count, artifact count, and branch status. Derived scores are computed separately through a pluggable metric registry so metrics can be versioned and expanded without changing the runtime trace contract.
+
 Skill content is tool-managed in this repository. The tracked source of truth is `skills-lock.json`, and the local `skills/` directory should be refreshed with:
 
 ```bash

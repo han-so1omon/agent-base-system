@@ -63,10 +63,17 @@ def chat_api(payload: _ChatRequest, request: Request) -> dict[str, Any]:
 
     thread_id = payload.threadId or str(uuid4())
     try:
+        request_metadata = {
+            "route": "/api/chat",
+            "message_count": len(payload.messages),
+            "streaming": _prefers_text_stream(request),
+            "thread_id": thread_id,
+        }
         result = run_interaction(
             workflow_service=request.app.state.runtime_state.workflow_service,
             thread_id=thread_id,
             messages=_normalize_messages(payload.messages),
+            request_metadata=request_metadata,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc

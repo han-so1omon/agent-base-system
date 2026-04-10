@@ -39,3 +39,23 @@ def test_config_loads_arq_and_artifact_storage_settings(monkeypatch: pytest.Monk
     assert settings.arq_queue_name == "deep-agent"
     assert settings.artifact_storage_backend == "local"
     assert settings.artifact_storage_dir == Path("/tmp/base-agent-artifacts")
+
+
+def test_config_loads_opik_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BASE_AGENT_SYSTEM_NEO4J_URI", "bolt://example.com:7687")
+    monkeypatch.setenv("BASE_AGENT_SYSTEM_POSTGRES_URI", "postgresql://user:pass@localhost/db")
+    monkeypatch.setenv("BASE_AGENT_SYSTEM_OPIK_ENABLED", "true")
+    monkeypatch.setenv("BASE_AGENT_SYSTEM_OPIK_PROJECT_NAME", "agent-system-prod")
+    monkeypatch.setenv("BASE_AGENT_SYSTEM_OPIK_WORKSPACE", "team-workspace")
+    monkeypatch.setenv("BASE_AGENT_SYSTEM_OPIK_API_KEY_NAME", "CUSTOM_OPIK_KEY")
+    monkeypatch.setenv("BASE_AGENT_SYSTEM_OPIK_URL", "https://opik.example.com")
+    monkeypatch.setenv("BASE_AGENT_SYSTEM_OPIK_USE_LOCAL", "true")
+
+    settings = load_settings()
+
+    assert settings.opik_enabled is True
+    assert settings.opik_project_name == "agent-system-prod"
+    assert settings.opik_workspace == "team-workspace"
+    assert settings.opik_api_key_name == "CUSTOM_OPIK_KEY"
+    assert settings.opik_url == "https://opik.example.com"
+    assert settings.opik_use_local is True
