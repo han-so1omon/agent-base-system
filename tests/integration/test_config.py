@@ -23,3 +23,19 @@ def test_config_loads_firecrawl_settings(monkeypatch: pytest.MonkeyPatch) -> Non
     settings = load_settings()
     assert settings.firecrawl_api_url == "http://firecrawl:3002"
     assert settings.firecrawl_api_key == "fc-key"
+
+
+def test_config_loads_arq_and_artifact_storage_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BASE_AGENT_SYSTEM_NEO4J_URI", "bolt://example.com:7687")
+    monkeypatch.setenv("BASE_AGENT_SYSTEM_POSTGRES_URI", "postgresql://user:pass@localhost/db")
+    monkeypatch.setenv("BASE_AGENT_SYSTEM_ARQ_REDIS_URI", "redis://localhost:6379/0")
+    monkeypatch.setenv("BASE_AGENT_SYSTEM_ARQ_QUEUE_NAME", "deep-agent")
+    monkeypatch.setenv("BASE_AGENT_SYSTEM_ARTIFACT_STORAGE_BACKEND", "local")
+    monkeypatch.setenv("BASE_AGENT_SYSTEM_ARTIFACT_STORAGE_DIR", "/tmp/base-agent-artifacts")
+
+    settings = load_settings()
+
+    assert settings.arq_redis_uri == "redis://localhost:6379/0"
+    assert settings.arq_queue_name == "deep-agent"
+    assert settings.artifact_storage_backend == "local"
+    assert settings.artifact_storage_dir == Path("/tmp/base-agent-artifacts")

@@ -33,6 +33,7 @@ from base_agent_system.workflow.state import WorkflowHooks, WorkflowState
 
 class AgentWorkflowState(AgentState, total=False):
     thread_id: str
+    context_policy: dict[str, object]
 
 
 class AgentWorkflowApp:
@@ -80,18 +81,21 @@ class AgentWorkflowApp:
             }
 
         result = self._app.invoke({"messages": messages, "thread_id": thread_id}, **invoke_kwargs)
+        interaction = {
+            "used_tools": debug["tool_calls"] > 0,
+            "tool_call_count": debug["tool_calls"],
+            "tools_used": tools_used,
+            "steps": [],
+            "intermediate_reasoning": result.get("intermediate_reasoning"),
+        }
+        if "spawn" in result:
+            interaction["spawn"] = result["spawn"]
         return {
             "thread_id": thread_id,
             "answer": _extract_answer(result.get("messages", [])),
             "citations": citations,
             "debug": debug,
-            "interaction": {
-                "used_tools": debug["tool_calls"] > 0,
-                "tool_call_count": debug["tool_calls"],
-                "tools_used": tools_used,
-                "steps": [],
-                "intermediate_reasoning": result.get("intermediate_reasoning"),
-            },
+            "interaction": interaction,
         }
 
 

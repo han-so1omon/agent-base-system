@@ -121,6 +121,100 @@ def test_graphiti_memory_service_allows_injected_backend_without_provider_config
     assert len(results) == 1
 
 
+@pytest.mark.asyncio
+async def test_graphiti_memory_service_exposes_async_methods_with_injected_backend() -> None:
+    settings = _settings()
+    backend = _InMemoryGraphitiBackend()
+
+    service = GraphitiMemoryService(settings=settings, backend=backend)
+
+    await service.ainitialize_indices()
+    await service.astore_episode(
+        MemoryEpisode(
+            thread_id="thread-async",
+            actor="user",
+            content="Use graph-first retrieval for this task.",
+        )
+    )
+
+    results = await service.asearch_memory("graph-first retrieval", thread_id="thread-async", limit=1)
+
+    assert backend.initialized is True
+    assert len(results) == 1
+
+
+@pytest.mark.asyncio
+async def test_graphiti_memory_service_async_methods_preserve_sync_compatibility() -> None:
+    settings = _settings()
+    backend = _InMemoryGraphitiBackend()
+    service = GraphitiMemoryService(settings=settings, backend=backend)
+
+    service.initialize_indices()
+    service.store_episode(
+        MemoryEpisode(
+            thread_id="thread-sync-compat",
+            actor="user",
+            content="Remember scheduling context.",
+        )
+    )
+
+    results = await service.asearch_memory("scheduling context", thread_id="thread-sync-compat", limit=1)
+
+    assert len(results) == 1
+
+
+@pytest.mark.asyncio
+async def test_live_graphiti_backend_exposes_async_surface() -> None:
+    search_calls: list[dict[str, object]] = []
+
+    class _FakeClient:
+        async def build_indices_and_constraints(self) -> None:
+            return None
+
+        async def add_episode(self, **kwargs) -> None:
+            return None
+
+        async def search(self, query: str, **kwargs):
+            search_calls.append({"query": query, **kwargs})
+            return [
+                SimpleNamespace(
+                    fact="Remembered preference",
+                    source="user",
+                    fact_embedding_similarity=0.9,
+                )
+            ]
+
+        async def close(self) -> None:
+            return None
+
+    backend = __import__(
+        "base_agent_system.memory.graphiti_service",
+        fromlist=["_LiveGraphitiBackend"],
+    )._LiveGraphitiBackend(
+        settings=_settings(),
+        provider_api_key="test-key",
+        graphiti_class=lambda **kwargs: None,
+        episode_type="message",
+        search_recipe=object(),
+    )
+    backend._client = _FakeClient()
+
+    await backend.ainitialize_indices()
+    await backend.astore_episode(
+        MemoryEpisode(thread_id="thread-123", actor="user", content="Preferred deployment target")
+    )
+    results = await backend.asearch_memory("preferred deployment target", thread_id="thread-123", limit=2)
+
+    assert len(results) == 1
+    assert search_calls == [
+        {
+            "query": "preferred deployment target",
+            "group_ids": ["thread-123"],
+            "num_results": 2,
+        }
+    ]
+
+
 def test_graphiti_memory_service_stores_and_returns_relevant_memory_when_backend_is_available() -> None:
     settings = _settings()
     service = GraphitiMemoryService(

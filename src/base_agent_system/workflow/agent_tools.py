@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Protocol
 
-from langchain.tools import tool
+from langchain.tools import StructuredTool, tool
 
 from base_agent_system.memory.models import MemorySearchResult
 from base_agent_system.retrieval.models import RetrievalResult
@@ -27,9 +27,13 @@ class MemoryService(Protocol):
 
 class FirecrawlClientProtocol(Protocol):
     def scrape(self, url: str) -> str: ...
+    async def ascrape(self, url: str) -> str: ...
     def search(self, query: str) -> str: ...
+    async def asearch(self, query: str) -> str: ...
     def crawl(self, url: str) -> str: ...
+    async def acrawl(self, url: str) -> str: ...
     def crawl_status(self, job_id: str) -> str: ...
+    async def acrawl_status(self, job_id: str) -> str: ...
 
 
 def build_search_docs_tool(
@@ -88,7 +92,6 @@ def _format_memory_item(item: MemorySearchResult | dict[str, object]) -> str:
 
 
 def build_firecrawl_scrape_tool(client: FirecrawlClientProtocol) -> Callable[..., str]:
-    @tool
     def firecrawl_scrape(url: str) -> str:
         """Scrape a specific URL and return its clean markdown content."""
         try:
@@ -96,7 +99,18 @@ def build_firecrawl_scrape_tool(client: FirecrawlClientProtocol) -> Callable[...
         except Exception as e:
             return f"Scrape failed: {e}"
 
-    return firecrawl_scrape
+    async def firecrawl_scrape_async(url: str) -> str:
+        try:
+            return await client.ascrape(url)
+        except Exception as e:
+            return f"Scrape failed: {e}"
+
+    return StructuredTool.from_function(
+        func=firecrawl_scrape,
+        coroutine=firecrawl_scrape_async,
+        name="firecrawl_scrape",
+        description="Scrape a specific URL and return its clean markdown content.",
+    )
 
 
 def build_firecrawl_search_tool(client: FirecrawlClientProtocol) -> Callable[..., str]:
