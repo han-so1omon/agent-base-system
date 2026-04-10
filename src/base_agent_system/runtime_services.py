@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import asyncio
+import inspect
 import os
 import re
 from tempfile import TemporaryDirectory
@@ -66,16 +67,17 @@ def build_runtime_services(
         else PostgresInteractionRepository(postgres_uri=settings.postgres_uri)
     )
     interaction_repository.initialize_schema()
-    workflow_service = workflow_builder_factory(
-        settings,
-        retrieval_service=retrieval_service,
-        memory_service=memory_service,
-        temp_dir=temp_dir,
-        workflow_builder=registry.get_workflow_builder("default"),
-        interaction_repository=interaction_repository,
-        topic_preview_generator=(lambda text: "Generated topic") if memory_backend is not None else _build_topic_preview_generator(settings),
-        observability_service=observability_service,
-    )
+    workflow_service_kwargs = {
+        "retrieval_service": retrieval_service,
+        "memory_service": memory_service,
+        "temp_dir": temp_dir,
+        "workflow_builder": registry.get_workflow_builder("default"),
+        "interaction_repository": interaction_repository,
+        "topic_preview_generator": (lambda text: "Generated topic") if memory_backend is not None else _build_topic_preview_generator(settings),
+    }
+    if _callable_supports_kwarg(workflow_builder_factory, "observability_service"):
+        workflow_service_kwargs["observability_service"] = observability_service
+    workflow_service = workflow_builder_factory(settings, **workflow_service_kwargs)
     return ingest_service, workflow_service, interaction_repository
 
 
@@ -532,6 +534,16 @@ def _messages_from_query(query: str | None) -> list[dict[str, str]]:
     if not query or not query.strip():
         return []
     return [{"role": "user", "content": query.strip()}]
+
+
+def _callable_supports_kwarg(callable_obj: Callable[..., object], kwarg: str) -> bool:
+    try:
+        signature = inspect.signature(callable_obj)
+    except (TypeError, ValueError):
+        return False
+    if kwarg in signature.parameters:
+        return True
+    return any(parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in signature.parameters.values())
 
 def _tokenize(text: str) -> set[str]:
     return {

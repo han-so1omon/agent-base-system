@@ -49,6 +49,18 @@ export BASE_AGENT_SYSTEM_LLM_MODEL=gpt-4o-mini
 export OPENAI_API_KEY=...
 ```
 
+Optional Opik setup:
+
+```bash
+export BASE_AGENT_SYSTEM_OPIK_ENABLED=true
+export BASE_AGENT_SYSTEM_OPIK_PROJECT_NAME=base-agent-system
+export BASE_AGENT_SYSTEM_OPIK_WORKSPACE=...
+export BASE_AGENT_SYSTEM_OPIK_API_KEY_NAME=OPIK_API_KEY
+export BASE_AGENT_SYSTEM_OPIK_URL=https://opik.example.com
+export BASE_AGENT_SYSTEM_OPIK_USE_LOCAL=false
+export OPIK_API_KEY=...
+```
+
 3. Run `python3 -m base_agent_system.cli.main check-connections` to confirm config loads.
 4. Start the API with `python3 -m uvicorn base_agent_system.api.app:create_app --factory --host 127.0.0.1 --port 8000`.
 5. Check `GET /live` and `GET /ready`.
@@ -95,6 +107,12 @@ curl -X POST http://127.0.0.1:8000/interact \
 ```
 
 Expected: the second response mentions `Kubernetes` and `debug.memory_hits >= 1`.
+
+Opik operating model:
+- canonical trace unit: one interaction branch execution
+- thread-level analysis: group traces by `thread_id`
+- delegated work: group child traces by `parent_interaction_id`
+- evaluation metrics: compute derived scores from primitive runtime signals through a pluggable, versioned metric registry
 
 9. Restart the API process and ask the memory question again.
 
