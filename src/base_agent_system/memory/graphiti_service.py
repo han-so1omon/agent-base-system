@@ -16,9 +16,21 @@ from base_agent_system.memory.models import MemoryEpisode, MemorySearchResult
 class GraphitiMemoryBackend(Protocol):
     def initialize_indices(self) -> None: ...
 
+    async def ainitialize_indices(self) -> None: ...
+
     def store_episode(self, episode: MemoryEpisode) -> None: ...
 
+    async def astore_episode(self, episode: MemoryEpisode) -> None: ...
+
     def search_memory(
+        self,
+        query: str,
+        *,
+        thread_id: str,
+        limit: int,
+    ) -> list[dict[str, Any]]: ...
+
+    async def asearch_memory(
         self,
         query: str,
         *,
@@ -50,9 +62,28 @@ class GraphitiMemoryService:
         self._backend.initialize_indices()
         self._initialized = True
 
+    async def ainitialize_indices(self) -> None:
+        if self._backend is None:
+            self._backend = _build_graphiti_backend(
+                settings=self._settings,
+                provider_api_key=self._provider_api_key,
+            )
+        if hasattr(self._backend, "ainitialize_indices"):
+            await self._backend.ainitialize_indices()
+        else:
+            self._backend.initialize_indices()
+        self._initialized = True
+
     def store_episode(self, episode: MemoryEpisode) -> None:
         self._require_initialized()
         self._backend.store_episode(episode)
+
+    async def astore_episode(self, episode: MemoryEpisode) -> None:
+        self._require_initialized()
+        if hasattr(self._backend, "astore_episode"):
+            await self._backend.astore_episode(episode)
+        else:
+            self._backend.store_episode(episode)
 
     def search_memory(
         self,
@@ -72,6 +103,33 @@ class GraphitiMemoryService:
             thread_id=thread_id,
             limit=limit,
         )
+        return [_coerce_search_result(item) for item in raw_results]
+
+    async def asearch_memory(
+        self,
+        query: str,
+        *,
+        thread_id: str,
+        limit: int = 5,
+    ) -> list[MemorySearchResult]:
+        if not query.strip():
+            raise ValueError("query must not be empty")
+        if limit <= 0:
+            raise ValueError("limit must be greater than zero")
+
+        self._require_initialized()
+        if hasattr(self._backend, "asearch_memory"):
+            raw_results = await self._backend.asearch_memory(
+                query,
+                thread_id=thread_id,
+                limit=limit,
+            )
+        else:
+            raw_results = self._backend.search_memory(
+                query,
+                thread_id=thread_id,
+                limit=limit,
+            )
         return [_coerce_search_result(item) for item in raw_results]
 
     def _require_initialized(self) -> None:
@@ -171,6 +229,9 @@ class _LiveGraphitiBackend:
     def initialize_indices(self) -> None:
         self._runner.run(self._client.build_indices_and_constraints())
 
+    async def ainitialize_indices(self) -> None:
+        await self._client.build_indices_and_constraints()
+
     def store_episode(self, episode: MemoryEpisode) -> None:
         self._runner.run(
             self._client.add_episode(
@@ -181,6 +242,16 @@ class _LiveGraphitiBackend:
                 source=self._episode_type,
                 group_id=episode.thread_id,
             )
+        )
+
+    async def astore_episode(self, episode: MemoryEpisode) -> None:
+        await self._client.add_episode(
+            name=f"{episode.actor}-{episode.thread_id}",
+            episode_body=episode.content,
+            source_description="base-agent-system-memory",
+            reference_time=datetime.now(timezone.utc),
+            source=self._episode_type,
+            group_id=episode.thread_id,
         )
 
     def search_memory(
@@ -196,6 +267,36 @@ class _LiveGraphitiBackend:
                 group_ids=[thread_id],
                 num_results=limit,
             )
+        )
+
+        coerced_results: list[dict[str, Any]] = []
+        for item in search_results:
+            fact = getattr(item, "fact", None) or getattr(item, "name", None) or str(item)
+            actor = getattr(item, "source", None) or "memory"
+            score = getattr(item, "fact_embedding_similarity", None)
+            if score is None:
+                score = getattr(item, "rank", None)
+            coerced_results.append(
+                {
+                    "thread_id": thread_id,
+                    "actor": str(actor),
+                    "content": str(fact),
+                    "score": float(score or 0.0),
+                }
+            )
+        return coerced_results
+
+    async def asearch_memory(
+        self,
+        query: str,
+        *,
+        thread_id: str,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        search_results = await self._client.search(
+            query,
+            group_ids=[thread_id],
+            num_results=limit,
         )
 
         coerced_results: list[dict[str, Any]] = []

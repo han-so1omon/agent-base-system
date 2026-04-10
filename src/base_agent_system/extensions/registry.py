@@ -100,9 +100,10 @@ class _BuiltinApiRouterContributor:
         from base_agent_system.api.routes_health import router as health_router
         from base_agent_system.api.routes_ingest import router as ingest_router
         from base_agent_system.api.routes_interact import router as interact_router
+        from base_agent_system.api.routes_interactions import router as interactions_router
         from base_agent_system.api.routes_threads import router as threads_router
 
-        return (health_router, ingest_router, interact_router, threads_router, chat_router)
+        return (health_router, ingest_router, interact_router, interactions_router, threads_router, chat_router)
 
 
 class _BuiltinCliCommandContributor:

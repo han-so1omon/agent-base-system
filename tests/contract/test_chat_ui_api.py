@@ -86,6 +86,46 @@ def test_post_api_chat_returns_ui_message_wrapped_backend_answer(
     }
 
 
+def test_post_api_chat_includes_sub_interaction_metadata_when_spawned(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _base_env(monkeypatch)
+
+    class _CheckpointerHolder:
+        def open(self) -> object | None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    from base_agent_system.api.app import create_app
+
+    monkeypatch.setattr(
+        "base_agent_system.runtime_services.build_postgres_checkpointer",
+        lambda postgres_uri: _CheckpointerHolder(),
+    )
+
+    app = create_app(initialize_dependencies=False, memory_backend=_InMemoryGraphitiBackend())
+
+    with TestClient(app) as client:
+        client.app.state.runtime_state.workflow_service = _SpawnWorkflowService()
+        response = client.post(
+            "/api/chat",
+            json={
+                "threadId": "thread-ui-spawn",
+                "messages": [{"role": "user", "parts": [{"type": "text", "text": "Do deep research"}]}],
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["messages"][0]["metadata"]["spawn"] == {
+        "mode": "deep_agent",
+        "label": "Deep Agent",
+        "plan": ["search broadly", "summarize findings"],
+    }
+
+
 def test_post_api_chat_returns_error_for_new_thread_when_topic_preview_generation_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -156,3 +196,20 @@ class _FailingPreviewWorkflowService:
         assert thread_id == "thread-ui-fail"
         assert messages == [{"role": "user", "content": "Teach me about Taiwan"}]
         raise ValueError("topic preview generation failed")
+
+
+class _SpawnWorkflowService:
+    def run(self, *, thread_id: str, messages: list[dict[str, str]]) -> dict[str, object]:
+        return {
+            "thread_id": thread_id,
+            "answer": "I started a deeper investigation.",
+            "citations": [],
+            "debug": {"memory_hits": 0, "document_hits": 0},
+            "interaction": {
+                "spawn": {
+                    "mode": "deep_agent",
+                    "label": "Deep Agent",
+                    "plan": ["search broadly", "summarize findings"],
+                }
+            },
+        }
