@@ -11,7 +11,7 @@ web/.env.local
 web/node_modules/
 web/.next/
 web/out/
-skills/worktrunk
+skills/
 .adal/
 .agents/
 .augment/

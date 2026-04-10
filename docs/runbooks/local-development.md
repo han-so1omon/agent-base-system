@@ -36,8 +36,9 @@ Current non-goals:
 - no out-of-process plugins
 - no arbitrary workflow graph mutation
 
-1. Install the package in a Python 3.11 environment with `pip install -e .[dev]`.
-2. Export the runtime environment variables:
+1. Refresh the local tool-managed skills directory with `npx skills update`.
+2. Install the package in a Python 3.11 environment with `pip install -e .[dev]`.
+3. Export the runtime environment variables:
 
 ```bash
 export BASE_AGENT_SYSTEM_NEO4J_URI=bolt://localhost:7687
@@ -49,10 +50,10 @@ export BASE_AGENT_SYSTEM_LLM_MODEL=gpt-4o-mini
 export OPENAI_API_KEY=...
 ```
 
-3. Run `python3 -m base_agent_system.cli.main check-connections` to confirm config loads.
-4. Start the API with `python3 -m uvicorn base_agent_system.api.app:create_app --factory --host 127.0.0.1 --port 8000`.
-5. Check `GET /live` and `GET /ready`.
-6. Ingest docs with:
+4. Run `python3 -m base_agent_system.cli.main check-connections` to confirm config loads.
+5. Start the API with `python3 -m uvicorn base_agent_system.api.app:create_app --factory --host 127.0.0.1 --port 8000`.
+6. Check `GET /live` and `GET /ready`.
+7. Ingest docs with:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/ingest \
@@ -60,7 +61,7 @@ curl -X POST http://127.0.0.1:8000/ingest \
   -d '{"path":"docs/seed"}'
 ```
 
-7. Verify retrieval with:
+8. Verify retrieval with:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/interact \
@@ -82,7 +83,7 @@ The packaged chat page starts a new thread automatically on the first operator m
 
 Debug-only step and reasoning details are available at `/debug/threads/{thread_id}/interactions/{interaction_id}`, but that endpoint is disabled in production by default. Enable it only with explicit `BASE_AGENT_SYSTEM_DEBUG_INTERACTIONS_ENABLED=true` in a trusted environment.
 
-8. Verify persistent memory with:
+9. Verify persistent memory with:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/interact \
@@ -96,11 +97,11 @@ curl -X POST http://127.0.0.1:8000/interact \
 
 Expected: the second response mentions `Kubernetes` and `debug.memory_hits >= 1`.
 
-9. Restart the API process and ask the memory question again.
+10. Restart the API process and ask the memory question again.
 
 Expected: the remembered answer still appears after restart.
 
-10. Inspect Neo4j Browser with:
+11. Inspect Neo4j Browser with:
 
 ```cypher
 MATCH (n)
