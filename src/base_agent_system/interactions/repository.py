@@ -471,17 +471,20 @@ class PostgresInteractionRepository:
             from interactions
             where parent_interaction_id is null
             order by coalesce(last_event_at, created_at) desc, id desc
-            limit %s
         """
         with self._connection_factory() as connection:
             with connection.cursor() as cursor:
-                cursor.execute(query, (limit,))
+                cursor.execute(query)
                 rows = cursor.fetchall()
-        return [
-            InteractionThreadSummary(thread_id=row["thread_id"], preview=preview)
-            for row in rows
-            if (preview := _topic_preview(_json_value(row["metadata"])))
-        ]
+        summaries: list[InteractionThreadSummary] = []
+        for row in rows:
+            preview = _topic_preview(_json_value(row["metadata"]))
+            if not preview:
+                continue
+            summaries.append(InteractionThreadSummary(thread_id=row["thread_id"], preview=preview))
+            if len(summaries) >= limit:
+                break
+        return summaries
 
     def list_thread_interactions(
         self,
@@ -546,10 +549,12 @@ class PostgresInteractionRepository:
         """
         with self._connection_factory() as connection:
             with connection.cursor() as cursor:
-                cursor.execute(query, (parent_interaction_id, limit))
+                cursor.execute(query, (parent_interaction_id, limit + 1))
                 rows = cursor.fetchall()
-        items = [self._hydrate_interaction(row) for row in reversed(rows)]
-        return InteractionPage(items=items, has_more=False, next_before=None)
+        has_more = len(rows) > limit
+        visible_rows = rows[:limit]
+        items = [self._hydrate_interaction(row) for row in reversed(visible_rows)]
+        return InteractionPage(items=items, has_more=has_more, next_before=None)
 
     def list_interaction_events(
         self,
