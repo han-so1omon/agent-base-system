@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 from base_agent_system.app_state import AppState
 from base_agent_system.memory.graphiti_service import GraphitiMemoryBackend
 from base_agent_system.config import Settings, load_settings
+from base_agent_system.observability import create_observability_service
 from base_agent_system.runtime_services import build_runtime_services
 
 if TYPE_CHECKING:
@@ -38,6 +39,7 @@ def create_app_state(
         workflow_service=workflow_service,
         ingest_service=ingest_service,
         interaction_repository=interaction_repository,
+        observability_service=create_observability_service(runtime_settings),
     )
 
 
@@ -54,6 +56,7 @@ def shutdown_app_state(app_state: AppState) -> None:
     app_state.workflow_service = None
     app_state.ingest_service = None
     app_state.interaction_repository = None
+    app_state.observability_service = None
 
 
 def dependency_status(app_state: AppState) -> dict[str, bool]:
