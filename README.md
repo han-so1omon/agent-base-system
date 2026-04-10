@@ -42,6 +42,14 @@ Current non-goals:
 
 ## Development
 
+Skill content is tool-managed in this repository. The tracked source of truth is `skills-lock.json`, and the local `skills/` directory should be refreshed with:
+
+```bash
+npx skills update
+```
+
+Do not hand-edit files under `skills/` in this repository; regenerate them from the lock file instead.
+
 Run the smoke tests with:
 
 ```bash
