@@ -130,6 +130,60 @@ def test_interaction_repository_supports_parent_summary_projection_events() -> N
     assert page.items[0].latest_display_event.metadata == {"child_interaction_id": child.id}
 
 
+def test_in_memory_thread_listing_applies_limit_after_preview_filtering() -> None:
+    repository = InMemoryInteractionRepository()
+    recent = repository.create_interaction(thread_id="thread-recent", kind="agent_run", status="completed")
+    repository.append_event(
+        interaction_id=recent.id,
+        event_type="message_authored",
+        content="Recent interaction without preview",
+        is_display_event=True,
+        status="completed",
+    )
+    older = repository.create_interaction(
+        thread_id="thread-older",
+        kind="user",
+        status="completed",
+        metadata={"topic_preview": "Older preview"},
+    )
+    repository.append_event(
+        interaction_id=older.id,
+        event_type="message_authored",
+        content="Older interaction with preview",
+        is_display_event=True,
+        status="completed",
+    )
+
+    threads = repository.list_threads(limit=1)
+
+    assert threads == [repository.list_threads(limit=10)[0]]
+    assert threads[0].thread_id == "thread-older"
+
+
+def test_in_memory_child_interactions_report_has_more_when_limited() -> None:
+    repository = InMemoryInteractionRepository()
+    parent = repository.create_interaction(thread_id="thread-123", kind="agent_run", status="running")
+    for index in range(2):
+        child = repository.create_interaction(
+            thread_id="thread-123",
+            parent_interaction_id=parent.id,
+            kind="deep_agent",
+            status="queued",
+        )
+        repository.append_event(
+            interaction_id=child.id,
+            event_type="queued",
+            content=f"Child {index}",
+            is_display_event=True,
+            status="queued",
+        )
+
+    page = repository.list_child_interactions(parent_interaction_id=parent.id, limit=1)
+
+    assert page.has_more is True
+    assert len(page.items) == 1
+
+
 def test_postgres_interaction_repository_creates_schema_and_jsonb_wrapped_events() -> None:
     from base_agent_system.interactions.repository import PostgresInteractionRepository
 
@@ -304,6 +358,74 @@ def test_postgres_interaction_repository_persists_event_artifacts() -> None:
     assert events.items[0].artifacts == [artifact]
 
 
+def test_postgres_thread_listing_applies_limit_after_preview_filtering() -> None:
+    from base_agent_system.interactions.repository import PostgresInteractionRepository
+
+    state = _FakeDatabaseState()
+    repository = PostgresInteractionRepository(
+        postgres_uri="postgresql://postgres:postgres@localhost:5432/app",
+        connection_factory=lambda: _FakeConnection(state),
+    )
+
+    repository.initialize_schema()
+    recent = repository.create_interaction(thread_id="thread-recent", kind="agent_run")
+    repository.append_event(
+        interaction_id=recent.id,
+        event_type="message_authored",
+        content="Recent interaction without preview",
+        is_display_event=True,
+        status="completed",
+    )
+    older = repository.create_interaction(
+        thread_id="thread-older",
+        kind="user",
+        metadata={"topic_preview": "Older preview"},
+    )
+    repository.append_event(
+        interaction_id=older.id,
+        event_type="message_authored",
+        content="Older interaction with preview",
+        is_display_event=True,
+        status="completed",
+    )
+
+    threads = repository.list_threads(limit=1)
+
+    assert len(threads) == 1
+    assert threads[0].thread_id == "thread-older"
+
+
+def test_postgres_child_interactions_report_has_more_when_limited() -> None:
+    from base_agent_system.interactions.repository import PostgresInteractionRepository
+
+    state = _FakeDatabaseState()
+    repository = PostgresInteractionRepository(
+        postgres_uri="postgresql://postgres:postgres@localhost:5432/app",
+        connection_factory=lambda: _FakeConnection(state),
+    )
+
+    repository.initialize_schema()
+    parent = repository.create_interaction(thread_id="thread-123", kind="agent_run")
+    for index in range(2):
+        child = repository.create_interaction(
+            thread_id="thread-123",
+            parent_interaction_id=parent.id,
+            kind="deep_agent",
+        )
+        repository.append_event(
+            interaction_id=child.id,
+            event_type="queued",
+            content=f"Child {index}",
+            is_display_event=True,
+            status="queued",
+        )
+
+    page = repository.list_child_interactions(parent_interaction_id=parent.id, limit=1)
+
+    assert page.has_more is True
+    assert len(page.items) == 1
+
+
 class _FakeDatabaseState:
     def __init__(self) -> None:
         self.interactions: list[dict[str, object]] = []
@@ -405,7 +527,12 @@ class _FakeCursor:
             thread_id = str(params[0])
             self._results = [{"exists": 1}] if any(row["thread_id"] == thread_id for row in self._state.interactions) else []
             return
-        if normalized_query.startswith("select id, thread_id, parent_interaction_id, kind, status") and "where id = %s" not in normalized_query:
+        if normalized_query.startswith("select id, thread_id, parent_interaction_id, kind, status") and "where id = %s" not in normalized_query and "where parent_interaction_id = %s" not in normalized_query:
+            if normalized_query.startswith("select id, thread_id, parent_interaction_id, kind, status, created_at, updated_at, last_event_at, metadata, latest_display_event_id, child_count from interactions where parent_interaction_id is null"):
+                roots = [row for row in self._state.interactions if row["parent_interaction_id"] is None]
+                roots.sort(key=_interaction_sort_key, reverse=True)
+                self._results = roots
+                return
             thread_id = str(params[0])
             if len(params) == 1:
                 interaction = _interaction_by_id(self._state.interactions, thread_id)
