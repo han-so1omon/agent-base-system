@@ -18,6 +18,12 @@ WorkflowHooks = dict[WorkflowHookStage, Sequence[WorkflowHook]]
 
 class WorkflowState(TypedDict, total=False):
     thread_id: str
+    interaction_id: str
+    parent_interaction_id: str | None
+    execution_mode: str
+    reporting_target: str
+    context_policy: dict[str, Any]
+    cancellation_requested: bool
     messages: list[dict[str, str]]
     query: str
     retrieved_docs: list[dict[str, Any]]

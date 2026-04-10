@@ -12,7 +12,15 @@ from langgraph.prebuilt import create_react_agent
 from langgraph.prebuilt.chat_agent_executor import AgentState
 
 from base_agent_system.config import Settings
-from base_agent_system.workflow.agent_tools import build_search_docs_tool, build_search_memory_tool
+from base_agent_system.workflow.agent_tools import (
+    build_search_docs_tool,
+    build_search_memory_tool,
+    build_firecrawl_scrape_tool,
+    build_firecrawl_search_tool,
+    build_firecrawl_crawl_tool,
+    build_firecrawl_status_tool,
+)
+from base_agent_system.research.firecrawl_client import FirecrawlClient
 from base_agent_system.workflow.nodes import (
     persist_memory_node,
     retrieve_docs_node,
@@ -25,6 +33,7 @@ from base_agent_system.workflow.state import WorkflowHooks, WorkflowState
 
 class AgentWorkflowState(AgentState, total=False):
     thread_id: str
+    context_policy: dict[str, object]
 
 
 class AgentWorkflowApp:
@@ -72,18 +81,21 @@ class AgentWorkflowApp:
             }
 
         result = self._app.invoke({"messages": messages, "thread_id": thread_id}, **invoke_kwargs)
+        interaction = {
+            "used_tools": debug["tool_calls"] > 0,
+            "tool_call_count": debug["tool_calls"],
+            "tools_used": tools_used,
+            "steps": [],
+            "intermediate_reasoning": result.get("intermediate_reasoning"),
+        }
+        if "spawn" in result:
+            interaction["spawn"] = result["spawn"]
         return {
             "thread_id": thread_id,
             "answer": _extract_answer(result.get("messages", [])),
             "citations": citations,
             "debug": debug,
-            "interaction": {
-                "used_tools": debug["tool_calls"] > 0,
-                "tool_call_count": debug["tool_calls"],
-                "tools_used": tools_used,
-                "steps": [],
-                "intermediate_reasoning": result.get("intermediate_reasoning"),
-            },
+            "interaction": interaction,
         }
 
 
@@ -121,6 +133,16 @@ def build_workflow(
             on_result=lambda results: tool_context["memory_result_handler"](results),
         ),
     ]
+
+    if settings.firecrawl_api_url:
+        fc_client = FirecrawlClient(settings.firecrawl_api_url, settings.firecrawl_api_key)
+        tools.extend([
+            build_firecrawl_scrape_tool(fc_client),
+            build_firecrawl_search_tool(fc_client),
+            build_firecrawl_crawl_tool(fc_client),
+            build_firecrawl_status_tool(fc_client),
+        ])
+
     app = create_react_agent(
         model=model,
         tools=tools,

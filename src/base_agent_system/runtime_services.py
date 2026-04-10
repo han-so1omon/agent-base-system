@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import asyncio
 import os
 import re
 from tempfile import TemporaryDirectory
@@ -192,21 +193,35 @@ class WorkflowService:
         messages: list[dict[str, str]] | None = None,
         query: str | None = None,
     ) -> dict[str, Any]:
+        return asyncio.run(self.arun(thread_id=thread_id, messages=messages, query=query))
+
+    async def arun(
+        self,
+        *,
+        thread_id: str,
+        interaction_id: str | None = None,
+        parent_interaction_id: str | None = None,
+        messages: list[dict[str, str]] | None = None,
+        query: str | None = None,
+    ) -> dict[str, Any]:
         normalized_messages = messages or _messages_from_query(query)
         latest_user_message = _latest_user_message_text(normalized_messages)
         invoke_kwargs: dict[str, Any] = {}
         if self._checkpointer is not None:
             invoke_kwargs["config"] = {"configurable": {"thread_id": thread_id}}
 
-        result = self._app.invoke(
-            {
-                "thread_id": thread_id,
-                "messages": normalized_messages,
-                "query": latest_user_message,
-            },
-            **invoke_kwargs,
-        )
-        self._persist_conversation_turns(
+        payload = {
+            "thread_id": thread_id,
+            "messages": normalized_messages,
+            "query": latest_user_message,
+            "interaction_id": interaction_id,
+            "parent_interaction_id": parent_interaction_id,
+        }
+        if hasattr(self._app, "ainvoke"):
+            result = await self._app.ainvoke(payload, **invoke_kwargs)
+        else:
+            result = self._app.invoke(payload, **invoke_kwargs)
+        await self._persist_conversation_turns(
             thread_id=thread_id,
             messages=normalized_messages,
             answer=result["answer"],
@@ -216,6 +231,8 @@ class WorkflowService:
             messages=normalized_messages,
             answer=result["answer"],
             interaction=result.get("interaction", {}),
+            interaction_id=interaction_id,
+            parent_interaction_id=parent_interaction_id,
         )
         return {
             "thread_id": result["thread_id"],
@@ -232,7 +249,7 @@ class WorkflowService:
             self._checkpointer = None
         self._temp_dir.cleanup()
 
-    def _persist_conversation_turns(
+    async def _persist_conversation_turns(
         self,
         *,
         thread_id: str,
@@ -241,7 +258,7 @@ class WorkflowService:
     ) -> None:
         latest_user_message = _latest_user_message_text(messages)
         if latest_user_message:
-            self._memory_service.store_episode(
+            await self._store_memory_episode(
                 MemoryEpisode(
                     thread_id=thread_id,
                     actor="user",
@@ -249,13 +266,19 @@ class WorkflowService:
                 )
             )
         if answer.strip():
-            self._memory_service.store_episode(
+            await self._store_memory_episode(
                 MemoryEpisode(
                     thread_id=thread_id,
                     actor="assistant",
                     content=answer,
                 )
             )
+
+    async def _store_memory_episode(self, episode: MemoryEpisode) -> None:
+        if hasattr(self._memory_service, "astore_episode"):
+            await self._memory_service.astore_episode(episode)
+            return
+        self._memory_service.store_episode(episode)
 
     def _persist_interactions(
         self,
@@ -264,26 +287,77 @@ class WorkflowService:
         messages: list[dict[str, str]],
         answer: str,
         interaction: dict[str, Any],
+        interaction_id: str | None,
+        parent_interaction_id: str | None,
     ) -> None:
         latest_user_message = _latest_user_message_text(messages)
         if latest_user_message:
             topic_preview = None
             if hasattr(self._interaction_repository, "has_thread") and not self._interaction_repository.has_thread(thread_id=thread_id):
                 topic_preview = _require_topic_preview(self._topic_preview_generator, latest_user_message)
-            self._interaction_repository.store_user_interaction(
-                thread_id=thread_id,
-                content=latest_user_message,
-                topic_preview=topic_preview,
-            )
+            if hasattr(self._interaction_repository, "create_interaction") and hasattr(self._interaction_repository, "append_event"):
+                user_interaction = self._interaction_repository.create_interaction(
+                    thread_id=thread_id,
+                    kind="user",
+                    status="completed",
+                    metadata={"topic_preview": topic_preview} if topic_preview else None,
+                )
+                self._interaction_repository.append_event(
+                    interaction_id=user_interaction.id,
+                    event_type="message_authored",
+                    content=latest_user_message,
+                    is_display_event=True,
+                    status="completed",
+                )
+            else:
+                self._interaction_repository.store_user_interaction(
+                    thread_id=thread_id,
+                    content=latest_user_message,
+                    topic_preview=topic_preview,
+                )
         if answer.strip():
-            self._interaction_repository.store_agent_run_interaction(
-                thread_id=thread_id,
-                content=answer,
-                tool_call_count=int(interaction.get("tool_call_count", 0)),
-                tools_used=list(interaction.get("tools_used", [])),
-                steps=list(interaction.get("steps", [])),
-                intermediate_reasoning=interaction.get("intermediate_reasoning"),
-            )
+            if hasattr(self._interaction_repository, "create_interaction") and hasattr(self._interaction_repository, "append_event"):
+                agent_interaction_id = interaction_id
+                if agent_interaction_id is None:
+                    agent_interaction = self._interaction_repository.create_interaction(
+                        thread_id=thread_id,
+                        parent_interaction_id=parent_interaction_id,
+                        kind="agent_run",
+                        status="completed",
+                        metadata={
+                            "used_tools": bool(interaction.get("used_tools", False)),
+                            "tool_call_count": int(interaction.get("tool_call_count", 0)),
+                            "tools_used": list(interaction.get("tools_used", [])),
+                            **({"spawn": interaction["spawn"]} if "spawn" in interaction else {}),
+                        },
+                    )
+                    agent_interaction_id = agent_interaction.id
+                self._interaction_repository.append_event(
+                    interaction_id=agent_interaction_id,
+                    event_type="message_authored",
+                    content=answer,
+                    is_display_event=True,
+                    status="completed",
+                    artifacts=list(interaction.get("artifacts", [])),
+                )
+                self._interaction_repository.append_event(
+                    interaction_id=agent_interaction_id,
+                    event_type="tool_summary",
+                    status="completed",
+                    metadata={
+                        "steps": list(interaction.get("steps", [])),
+                        "reasoning": interaction.get("intermediate_reasoning"),
+                    },
+                )
+            else:
+                self._interaction_repository.store_agent_run_interaction(
+                    thread_id=thread_id,
+                    content=answer,
+                    tool_call_count=int(interaction.get("tool_call_count", 0)),
+                    tools_used=list(interaction.get("tools_used", [])),
+                    steps=list(interaction.get("steps", [])),
+                    intermediate_reasoning=interaction.get("intermediate_reasoning"),
+                )
 
 
 class _MutableRetrievalService:

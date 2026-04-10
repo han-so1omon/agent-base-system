@@ -79,6 +79,7 @@ def chat_api(payload: _ChatRequest, request: Request) -> dict[str, Any]:
                 "x-thread-id": str(result["thread_id"]),
                 "x-citations": json.dumps(result["citations"]),
                 "x-debug": json.dumps(result["debug"]),
+                "x-interaction": json.dumps(result.get("interaction", {})),
             },
         )
 
@@ -93,6 +94,11 @@ def chat_api(payload: _ChatRequest, request: Request) -> dict[str, Any]:
                     "thread_id": result["thread_id"],
                     "citations": result["citations"],
                     "debug": result["debug"],
+                    **(
+                        {"spawn": result.get("interaction", {}).get("spawn")}
+                        if result.get("interaction", {}).get("spawn")
+                        else {}
+                    ),
                 },
             }
         ],

@@ -100,3 +100,42 @@ def test_agent_workflow_app_returns_structured_interaction_metadata() -> None:
         "steps": [],
         "intermediate_reasoning": {"kind": "chain_of_thought", "content": "internal"},
     }
+
+
+def test_agent_workflow_app_returns_spawn_metadata_when_agent_delegates() -> None:
+    class _StubApp:
+        def invoke(self, payload: dict[str, object], **kwargs) -> dict[str, object]:
+            del payload, kwargs
+            return {
+                "messages": [],
+                "intermediate_reasoning": {"kind": "chain_of_thought", "content": "delegate"},
+                "spawn": {
+                    "mode": "deep_agent",
+                    "label": "Deep Agent",
+                    "plan": ["search broadly", "summarize findings"],
+                },
+            }
+
+    from base_agent_system.workflow.graph import AgentWorkflowApp
+
+    class _ModelStub:
+        def bind(self, **kwargs):
+            return self
+
+        def invoke(self, messages):
+            raise AssertionError("direct model path should not be used for delegation test")
+
+    app = AgentWorkflowApp(_StubApp(), model=_ModelStub(), tool_context={})
+
+    result = app.invoke(
+        {
+            "thread_id": "thread-123",
+            "messages": [{"role": "user", "content": "Use tools to research this system deeply."}],
+        }
+    )
+
+    assert result["interaction"]["spawn"] == {
+        "mode": "deep_agent",
+        "label": "Deep Agent",
+        "plan": ["search broadly", "summarize findings"],
+    }
