@@ -58,6 +58,14 @@ export OPIK_API_KEY=...
 
 Evaluation metrics are intentionally extensible. Runtime tracing records primitive signals such as tool count, retrieval hits, citation count, artifact count, and branch status. Derived scores are computed separately through a pluggable metric registry so metrics can be versioned and expanded without changing the runtime trace contract.
 
+Skill content is tool-managed in this repository. The tracked source of truth is `skills-lock.json`, and the local `skills/` directory should be refreshed with:
+
+```bash
+npx skills update
+```
+
+Do not hand-edit files under `skills/` in this repository; regenerate them from the lock file instead.
+
 Run the smoke tests with:
 
 ```bash
