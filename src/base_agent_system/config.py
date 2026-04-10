@@ -31,6 +31,12 @@ class Settings:
     arq_queue_name: str = "default"
     artifact_storage_backend: str = "local"
     artifact_storage_dir: Path = Path(".artifacts")
+    opik_enabled: bool = False
+    opik_project_name: str = "base-agent-system"
+    opik_workspace: str = ""
+    opik_api_key_name: str = "OPIK_API_KEY"
+    opik_url: str = ""
+    opik_use_local: bool = False
 
     def __post_init__(self) -> None:
         missing_fields = []
@@ -70,6 +76,12 @@ def load_settings() -> Settings:
         arq_queue_name=_get_env("BASE_AGENT_SYSTEM_ARQ_QUEUE_NAME", "default"),
         artifact_storage_backend=_get_env("BASE_AGENT_SYSTEM_ARTIFACT_STORAGE_BACKEND", "local"),
         artifact_storage_dir=Path(_get_env("BASE_AGENT_SYSTEM_ARTIFACT_STORAGE_DIR", ".artifacts")),
+        opik_enabled=_get_bool_env("BASE_AGENT_SYSTEM_OPIK_ENABLED", False),
+        opik_project_name=_get_env("BASE_AGENT_SYSTEM_OPIK_PROJECT_NAME", "base-agent-system"),
+        opik_workspace=_get_env("BASE_AGENT_SYSTEM_OPIK_WORKSPACE", ""),
+        opik_api_key_name=_get_env("BASE_AGENT_SYSTEM_OPIK_API_KEY_NAME", "OPIK_API_KEY"),
+        opik_url=_get_env("BASE_AGENT_SYSTEM_OPIK_URL", ""),
+        opik_use_local=_get_bool_env("BASE_AGENT_SYSTEM_OPIK_USE_LOCAL", False),
     )
 
 
