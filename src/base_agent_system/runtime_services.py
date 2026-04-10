@@ -19,6 +19,7 @@ from base_agent_system.memory.graphiti_service import GraphitiMemoryBackend
 from base_agent_system.ingestion.pipeline import ingest_markdown_directory
 from base_agent_system.memory.graphiti_service import GraphitiMemoryService
 from base_agent_system.memory.models import MemoryEpisode
+from base_agent_system.observability import NoopObservabilityService
 from base_agent_system.retrieval.index_service import RetrievalIndex, build_or_load_index
 from base_agent_system.retrieval.models import RetrievalResult
 from base_agent_system.workflow.graph import build_workflow
@@ -35,6 +36,7 @@ def build_runtime_services(
     *,
     memory_backend: GraphitiMemoryBackend | None = None,
     extension_registry: ExtensionRegistry | None = None,
+    observability_service: object | None = None,
     retrieval_service_factory: RetrievalServiceFactory | None = None,
     memory_service_factory: Callable[..., GraphitiMemoryService] | None = None,
     ingest_service_factory: IngestServiceFactory | None = None,
@@ -72,6 +74,7 @@ def build_runtime_services(
         workflow_builder=registry.get_workflow_builder("default"),
         interaction_repository=interaction_repository,
         topic_preview_generator=(lambda text: "Generated topic") if memory_backend is not None else _build_topic_preview_generator(settings),
+        observability_service=observability_service,
     )
     return ingest_service, workflow_service, interaction_repository
 
@@ -119,6 +122,7 @@ def build_workflow_service(
     interaction_repository: object,
     workflow_builder: object = build_workflow,
     topic_preview_generator: TopicPreviewGenerator | None = None,
+    observability_service: object | None = None,
 ) -> "WorkflowService":
     return WorkflowService(
         settings=settings,
@@ -128,6 +132,7 @@ def build_workflow_service(
         interaction_repository=interaction_repository,
         topic_preview_generator=topic_preview_generator,
         workflow_builder=workflow_builder,
+        observability_service=observability_service,
     )
 
 
@@ -168,11 +173,13 @@ class WorkflowService:
         interaction_repository: object,
         workflow_builder: object,
         topic_preview_generator: TopicPreviewGenerator | None = None,
+        observability_service: object | None = None,
     ) -> None:
         self._memory_service = memory_service
         self._temp_dir = temp_dir
         self._interaction_repository = interaction_repository
         self._topic_preview_generator = topic_preview_generator or (lambda text: "Generated topic")
+        self._observability_service = observability_service or NoopObservabilityService()
         self._checkpointer = None
         self._checkpointer_holder = None
         if settings.postgres_uri:
@@ -206,6 +213,14 @@ class WorkflowService:
     ) -> dict[str, Any]:
         normalized_messages = messages or _messages_from_query(query)
         latest_user_message = _latest_user_message_text(normalized_messages)
+        trace_metadata = {
+            "thread_id": thread_id,
+            "interaction_id": interaction_id,
+            "parent_interaction_id": parent_interaction_id,
+            "branch_kind": "child" if parent_interaction_id is not None else "root",
+            "message_count": len(normalized_messages),
+            "user_message_count": sum(1 for message in normalized_messages if message.get("role") == "user"),
+        }
         invoke_kwargs: dict[str, Any] = {}
         if self._checkpointer is not None:
             invoke_kwargs["config"] = {"configurable": {"thread_id": thread_id}}
@@ -217,30 +232,55 @@ class WorkflowService:
             "interaction_id": interaction_id,
             "parent_interaction_id": parent_interaction_id,
         }
-        if hasattr(self._app, "ainvoke"):
-            result = await self._app.ainvoke(payload, **invoke_kwargs)
-        else:
-            result = self._app.invoke(payload, **invoke_kwargs)
-        await self._persist_conversation_turns(
-            thread_id=thread_id,
-            messages=normalized_messages,
-            answer=result["answer"],
-        )
-        self._persist_interactions(
-            thread_id=thread_id,
-            messages=normalized_messages,
-            answer=result["answer"],
-            interaction=result.get("interaction", {}),
-            interaction_id=interaction_id,
-            parent_interaction_id=parent_interaction_id,
-        )
-        return {
-            "thread_id": result["thread_id"],
-            "answer": result["answer"],
-            "citations": result["citations"],
-            "debug": result["debug"],
-            "interaction": result.get("interaction", {}),
-        }
+        with self._observability_service.start_branch_trace(
+            name="interaction_branch",
+            metadata=trace_metadata,
+        ):
+            try:
+                if hasattr(self._app, "ainvoke"):
+                    result = await self._app.ainvoke(payload, **invoke_kwargs)
+                else:
+                    result = self._app.invoke(payload, **invoke_kwargs)
+                interaction = result.get("interaction", {})
+                trace_metadata.update(
+                    {
+                        "tool_call_count": int(interaction.get("tool_call_count", 0)),
+                        "tools_used": list(interaction.get("tools_used", [])),
+                        "citation_count": len(result.get("citations", [])),
+                        "artifact_count": len(interaction.get("artifacts", [])),
+                        "document_hits": int(result.get("debug", {}).get("document_hits", 0)),
+                        "memory_hits": int(result.get("debug", {}).get("memory_hits", 0)),
+                        "status": "completed",
+                    }
+                )
+                await self._persist_conversation_turns(
+                    thread_id=thread_id,
+                    messages=normalized_messages,
+                    answer=result["answer"],
+                )
+                self._persist_interactions(
+                    thread_id=thread_id,
+                    messages=normalized_messages,
+                    answer=result["answer"],
+                    interaction=interaction,
+                    interaction_id=interaction_id,
+                    parent_interaction_id=parent_interaction_id,
+                )
+                return {
+                    "thread_id": result["thread_id"],
+                    "answer": result["answer"],
+                    "citations": result["citations"],
+                    "debug": result["debug"],
+                    "interaction": interaction,
+                }
+            except Exception as exc:
+                trace_metadata.update(
+                    {
+                        "status": "failed",
+                        "error_type": type(exc).__name__,
+                    }
+                )
+                raise
 
     def close(self) -> None:
         self._memory_service.close()

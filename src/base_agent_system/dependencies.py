@@ -29,17 +29,19 @@ def create_app_state(
     extension_registry: ExtensionRegistry | None = None,
 ) -> AppState:
     runtime_settings = settings or get_settings()
+    observability_service = create_observability_service(runtime_settings)
     ingest_service, workflow_service, interaction_repository = build_runtime_services(
         runtime_settings,
         memory_backend=memory_backend,
         extension_registry=extension_registry,
+        observability_service=observability_service,
     )
     return AppState(
         settings=runtime_settings,
         workflow_service=workflow_service,
         ingest_service=ingest_service,
         interaction_repository=interaction_repository,
-        observability_service=create_observability_service(runtime_settings),
+        observability_service=observability_service,
     )
 
 
