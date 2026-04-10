@@ -53,6 +53,8 @@ def initialize_app_state(app_state: AppState) -> AppState:
 def shutdown_app_state(app_state: AppState) -> None:
     app_state.neo4j_driver = None
     app_state.postgres_pool = None
+    if app_state.observability_service is not None and hasattr(app_state.observability_service, "flush"):
+        app_state.observability_service.flush()
     if app_state.workflow_service is not None and hasattr(app_state.workflow_service, "close"):
         app_state.workflow_service.close()
     app_state.workflow_service = None

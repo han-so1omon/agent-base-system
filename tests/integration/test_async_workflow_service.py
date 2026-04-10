@@ -215,6 +215,65 @@ async def test_workflow_service_arun_records_failed_branch_trace(monkeypatch: py
     ]
 
 
+def test_workflow_service_run_passes_request_metadata_into_async_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    from base_agent_system.runtime_services import WorkflowService
+
+    class _CheckpointerHolder:
+        def open(self) -> object | None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "base_agent_system.runtime_services.build_postgres_checkpointer",
+        lambda postgres_uri: _CheckpointerHolder(),
+    )
+
+    backend = _InMemoryGraphitiBackend()
+    memory_service = GraphitiMemoryService(settings=_settings(), backend=backend, provider_api_key="test-key")
+    memory_service.initialize_indices()
+
+    observability = _RecordingObservabilityService()
+    workflow_service = WorkflowService(
+        settings=_settings(),
+        retrieval_service=SimpleNamespace(),
+        memory_service=memory_service,
+        temp_dir=SimpleNamespace(cleanup=lambda: None),
+        interaction_repository=InMemoryInteractionRepository(),
+        workflow_builder=lambda **kwargs: _AsyncWorkflowStub(),
+        observability_service=observability,
+    )
+
+    workflow_service.run(
+        thread_id="thread-run-1",
+        messages=[{"role": "user", "content": "What happened?"}],
+        request_metadata={"route": "/interact", "streaming": False},
+    )
+
+    assert observability.branch_traces == [
+        {
+            "name": "interaction_branch",
+            "metadata": {
+                "thread_id": "thread-run-1",
+                "interaction_id": None,
+                "parent_interaction_id": None,
+                "branch_kind": "root",
+                "message_count": 1,
+                "user_message_count": 1,
+                "request_metadata": {"route": "/interact", "streaming": False},
+                "tool_call_count": 1,
+                "tools_used": ["search_memory"],
+                "citation_count": 0,
+                "artifact_count": 1,
+                "document_hits": 0,
+                "memory_hits": 0,
+                "status": "completed",
+            },
+        }
+    ]
+
+
 class _FailingWorkflowStub:
     async def ainvoke(self, payload: dict[str, object], **kwargs) -> dict[str, object]:
         del payload, kwargs

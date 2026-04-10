@@ -201,8 +201,16 @@ class WorkflowService:
         thread_id: str,
         messages: list[dict[str, str]] | None = None,
         query: str | None = None,
+        request_metadata: dict[str, object] | None = None,
     ) -> dict[str, Any]:
-        return asyncio.run(self.arun(thread_id=thread_id, messages=messages, query=query))
+        return asyncio.run(
+            self.arun(
+                thread_id=thread_id,
+                messages=messages,
+                query=query,
+                request_metadata=request_metadata,
+            )
+        )
 
     async def arun(
         self,
@@ -212,6 +220,7 @@ class WorkflowService:
         parent_interaction_id: str | None = None,
         messages: list[dict[str, str]] | None = None,
         query: str | None = None,
+        request_metadata: dict[str, object] | None = None,
     ) -> dict[str, Any]:
         normalized_messages = messages or _messages_from_query(query)
         latest_user_message = _latest_user_message_text(normalized_messages)
@@ -223,6 +232,8 @@ class WorkflowService:
             "message_count": len(normalized_messages),
             "user_message_count": sum(1 for message in normalized_messages if message.get("role") == "user"),
         }
+        if request_metadata is not None:
+            trace_metadata["request_metadata"] = dict(request_metadata)
         invoke_kwargs: dict[str, Any] = {}
         if self._checkpointer is not None:
             invoke_kwargs["config"] = {"configurable": {"thread_id": thread_id}}

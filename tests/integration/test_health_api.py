@@ -141,3 +141,23 @@ def test_create_app_accepts_explicit_in_memory_backend_for_tests(
         pass
 
     assert backend is not None
+
+
+def test_shutdown_flushes_observability_service(monkeypatch: pytest.MonkeyPatch) -> None:
+    _base_env(monkeypatch)
+    _stub_checkpointer(monkeypatch)
+
+    from base_agent_system.api.app import create_app
+
+    flushed: list[str] = []
+
+    class _ObservabilityService:
+        def flush(self) -> None:
+            flushed.append("flushed")
+
+    app = create_app(initialize_dependencies=False, memory_backend=_InMemoryGraphitiBackend())
+
+    with TestClient(app) as client:
+        client.app.state.runtime_state.observability_service = _ObservabilityService()
+
+    assert flushed == ["flushed"]
