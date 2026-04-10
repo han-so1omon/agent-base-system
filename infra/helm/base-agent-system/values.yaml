@@ -1,3 +1,9 @@
+firecrawl:
+  enabled: false
+  image:
+    api: mendableai/firecrawl:latest
+    worker: mendableai/firecrawl:latest
+
 replicaCount: 2
 
 image:

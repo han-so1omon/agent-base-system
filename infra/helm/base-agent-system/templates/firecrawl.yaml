@@ -1,0 +1,86 @@
+{{- if .Values.firecrawl.enabled -}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: firecrawl-redis
+spec:
+  selector:
+    matchLabels:
+      app: firecrawl-redis
+  template:
+    metadata:
+      labels:
+        app: firecrawl-redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:alpine
+          ports:
+            - containerPort: 6379
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: firecrawl-redis
+spec:
+  ports:
+    - port: 6379
+  selector:
+    app: firecrawl-redis
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: firecrawl-api
+spec:
+  selector:
+    matchLabels:
+      app: firecrawl-api
+  template:
+    metadata:
+      labels:
+        app: firecrawl-api
+    spec:
+      containers:
+        - name: api
+          image: {{ .Values.firecrawl.image.api }}
+          env:
+            - name: REDIS_URL
+              value: redis://firecrawl-redis:6379
+            - name: USE_DB_AUTHENTICATION
+              value: "false"
+          ports:
+            - containerPort: 3002
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: firecrawl-api
+spec:
+  ports:
+    - port: 3002
+  selector:
+    app: firecrawl-api
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: firecrawl-worker
+spec:
+  selector:
+    matchLabels:
+      app: firecrawl-worker
+  template:
+    metadata:
+      labels:
+        app: firecrawl-worker
+    spec:
+      containers:
+        - name: worker
+          image: {{ .Values.firecrawl.image.worker }}
+          command: ["npm", "run", "workers"]
+          env:
+            - name: REDIS_URL
+              value: redis://firecrawl-redis:6379
+{{- end }}

@@ -25,6 +25,12 @@ class Settings:
     api_port: int = 8000
     debug_interactions_enabled: bool = False
     interactions_page_size: int = 20
+    firecrawl_api_url: str = ""
+    firecrawl_api_key: str = ""
+    arq_redis_uri: str = "redis://localhost:6379/0"
+    arq_queue_name: str = "default"
+    artifact_storage_backend: str = "local"
+    artifact_storage_dir: Path = Path(".artifacts")
 
     def __post_init__(self) -> None:
         missing_fields = []
@@ -58,6 +64,12 @@ def load_settings() -> Settings:
         api_port=int(_get_env("BASE_AGENT_SYSTEM_API_PORT", "8000")),
         debug_interactions_enabled=_get_bool_env("BASE_AGENT_SYSTEM_DEBUG_INTERACTIONS_ENABLED", False),
         interactions_page_size=int(_get_env("BASE_AGENT_SYSTEM_INTERACTIONS_PAGE_SIZE", "20")),
+        firecrawl_api_url=_get_env("BASE_AGENT_SYSTEM_FIRECRAWL_API_URL", ""),
+        firecrawl_api_key=_get_env("BASE_AGENT_SYSTEM_FIRECRAWL_API_KEY", ""),
+        arq_redis_uri=_get_env("BASE_AGENT_SYSTEM_ARQ_REDIS_URI", "redis://localhost:6379/0"),
+        arq_queue_name=_get_env("BASE_AGENT_SYSTEM_ARQ_QUEUE_NAME", "default"),
+        artifact_storage_backend=_get_env("BASE_AGENT_SYSTEM_ARTIFACT_STORAGE_BACKEND", "local"),
+        artifact_storage_dir=Path(_get_env("BASE_AGENT_SYSTEM_ARTIFACT_STORAGE_DIR", ".artifacts")),
     )
 
 

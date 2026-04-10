@@ -42,17 +42,51 @@ class AgentRunMetadataPayload(BaseModel):
     tools_used: list[str]
 
 
+class ArtifactReferencePayload(BaseModel):
+    artifact_id: str
+    storage_backend: str
+    storage_uri: str
+    media_type: str
+    logical_role: str
+    checksum: str
+    metadata: dict[str, object] | None = None
+
+
+class InteractionEventPayload(BaseModel):
+    id: str
+    interaction_id: str
+    event_type: str
+    created_at: str
+    content: str | None = None
+    is_display_event: bool
+    status: str | None = None
+    metadata: dict[str, object] | None = None
+    artifacts: list[ArtifactReferencePayload] = []
+
+
 class InteractionPayload(BaseModel):
     id: str
     thread_id: str
+    parent_interaction_id: str | None = None
     kind: str
-    content: str
+    status: str
     created_at: str
-    metadata: AgentRunMetadataPayload | None = None
+    updated_at: str | None = None
+    last_event_at: str | None = None
+    latest_display_event_id: str | None = None
+    child_count: int = 0
+    latest_display_event: InteractionEventPayload | None = None
+    metadata: dict[str, object] | None = None
 
 
 class InteractionPagePayload(BaseModel):
-    messages: list[InteractionPayload]
+    items: list[InteractionPayload]
+    has_more: bool
+    next_before: dict[str, str] | None
+
+
+class InteractionEventPagePayload(BaseModel):
+    items: list[InteractionEventPayload]
     has_more: bool
     next_before: dict[str, str] | None
 

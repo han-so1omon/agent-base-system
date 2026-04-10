@@ -10,7 +10,7 @@ from base_agent_system.workflow.state import WorkflowHook, WorkflowState
 
 
 class RetrievalService(Protocol):
-    def query(self, text: str, *, top_k: int) -> list[RetrievalResult]: ...
+    def query(self, text: str, *, top_k: int, context_policy: dict[str, object] | None = None) -> list[RetrievalResult]: ...
 
 
 class MemoryService(Protocol):
@@ -20,6 +20,7 @@ class MemoryService(Protocol):
         *,
         thread_id: str,
         limit: int = 5,
+        context_policy: dict[str, object] | None = None,
     ) -> list[MemorySearchResult]: ...
 
     def store_episode(self, episode: MemoryEpisode) -> None: ...
@@ -27,7 +28,14 @@ class MemoryService(Protocol):
 
 def retrieve_docs_node(retrieval_service: RetrievalService):
     def retrieve_docs(state: WorkflowState) -> WorkflowState:
-        results = retrieval_service.query(state["query"], top_k=3)
+        try:
+            results = retrieval_service.query(
+                state["query"],
+                top_k=3,
+                context_policy=state.get("context_policy"),
+            )
+        except TypeError:
+            results = retrieval_service.query(state["query"], top_k=3)
         return {
             "retrieved_docs": [
                 {
@@ -47,11 +55,19 @@ def retrieve_docs_node(retrieval_service: RetrievalService):
 
 def retrieve_memory_node(memory_service: MemoryService):
     def retrieve_memory(state: WorkflowState) -> WorkflowState:
-        results = memory_service.search_memory(
-            state["query"],
-            thread_id=state["thread_id"],
-            limit=3,
-        )
+        try:
+            results = memory_service.search_memory(
+                state["query"],
+                thread_id=state["thread_id"],
+                limit=3,
+                context_policy=state.get("context_policy"),
+            )
+        except TypeError:
+            results = memory_service.search_memory(
+                state["query"],
+                thread_id=state["thread_id"],
+                limit=3,
+            )
         return {
             "retrieved_memory": [
                 {
