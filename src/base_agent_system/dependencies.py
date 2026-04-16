@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import os
 import socket
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from base_agent_system.app_state import AppState
+from base_agent_system.observability import (
+    NoopObservabilityService,
+    OpikObservabilityService,
+)
 from base_agent_system.memory.graphiti_service import GraphitiMemoryBackend
 from base_agent_system.config import Settings, load_settings
 from base_agent_system.runtime_services import build_runtime_services
@@ -28,17 +33,34 @@ def create_app_state(
     extension_registry: ExtensionRegistry | None = None,
 ) -> AppState:
     runtime_settings = settings or get_settings()
+    observability_service = (
+        OpikObservabilityService(
+            project_name=runtime_settings.opik_project_name,
+            workspace=runtime_settings.opik_workspace,
+            url=runtime_settings.opik_url,
+            api_key=_resolve_opik_api_key(runtime_settings),
+            use_local=runtime_settings.opik_use_local,
+        )
+        if runtime_settings.opik_enabled
+        else NoopObservabilityService()
+    )
     ingest_service, workflow_service, interaction_repository = build_runtime_services(
         runtime_settings,
         memory_backend=memory_backend,
         extension_registry=extension_registry,
+        observability_service=observability_service,
     )
     return AppState(
         settings=runtime_settings,
         workflow_service=workflow_service,
         ingest_service=ingest_service,
         interaction_repository=interaction_repository,
+        observability_service=observability_service,
     )
+
+
+def _resolve_opik_api_key(settings: Settings) -> str | None:
+    return os.getenv(settings.opik_api_key_name)
 
 
 def initialize_app_state(app_state: AppState) -> AppState:

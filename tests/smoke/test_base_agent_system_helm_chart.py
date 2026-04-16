@@ -1,4 +1,29 @@
 from pathlib import Path
+import subprocess
+
+
+def _render_chart(*args: str) -> str:
+    rendered = subprocess.run(
+        [
+            "helm",
+            "template",
+            "base-agent-system",
+            "infra/helm/base-agent-system",
+            *args,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert rendered.returncode == 0, rendered.stderr
+    return rendered.stdout
+
+
+def _render_kind_chart() -> str:
+    return _render_chart(
+        "-f",
+        "infra/helm/environments/kind/values.yaml",
+    )
 
 
 def test_base_agent_system_helm_chart_exists_and_covers_app_contract() -> None:
@@ -60,3 +85,53 @@ def test_container_image_declares_non_root_user() -> None:
     text = dockerfile.read_text()
 
     assert "USER " in text
+
+
+def test_firecrawl_cloud_helm_contract() -> None:
+    values = Path("infra/helm/base-agent-system/values.yaml")
+    kind_values = Path("infra/helm/environments/kind/values.yaml")
+    configmap = Path("infra/helm/base-agent-system/templates/configmap.yaml")
+    secret = Path("infra/helm/base-agent-system/templates/secret.yaml")
+    firecrawl_template = Path("infra/helm/base-agent-system/templates/firecrawl.yaml")
+
+    assert values.exists()
+    assert kind_values.exists()
+    assert configmap.exists()
+    assert secret.exists()
+    assert firecrawl_template.exists()
+
+    values_text = values.read_text()
+    kind_values_text = kind_values.read_text()
+    configmap_text = configmap.read_text()
+    secret_text = secret.read_text()
+
+    assert "firecrawlApiUrl:" in values_text
+    assert "firecrawlApiKey:" in values_text
+    assert "opik:" in values_text
+    assert "BASE_AGENT_SYSTEM_FIRECRAWL_API_URL" in configmap_text
+    assert ".Values.config.firecrawlApiUrl" in configmap_text
+    assert "BASE_AGENT_SYSTEM_FIRECRAWL_API_KEY" in secret_text
+    assert ".Values.secret.firecrawlApiKey" in secret_text
+    assert "firecrawlApiUrl:" in kind_values_text
+    assert "enabled: false" in kind_values_text
+
+    kind_rendered_text = _render_kind_chart()
+    assert 'BASE_AGENT_SYSTEM_FIRECRAWL_API_URL: "https://api.firecrawl.dev"' in kind_rendered_text
+    assert "BASE_AGENT_SYSTEM_FIRECRAWL_API_KEY:" in kind_rendered_text
+    assert "name: firecrawl-api" not in kind_rendered_text
+
+    invalid_self_hosted = subprocess.run(
+        [
+            "helm",
+            "template",
+            "base-agent-system",
+            "infra/helm/base-agent-system",
+            "--set",
+            "firecrawl.enabled=true",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert invalid_self_hosted.returncode != 0
+    assert "config.firecrawlApiUrl must be set when firecrawl.enabled=true" in invalid_self_hosted.stderr

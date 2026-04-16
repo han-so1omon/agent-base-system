@@ -1,3 +1,6 @@
+{{- if and .Values.firecrawl.enabled (not .Values.config.firecrawlApiUrl) }}
+{{- fail "config.firecrawlApiUrl must be set when firecrawl.enabled=true" }}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -8,7 +11,12 @@ data:
   BASE_AGENT_SYSTEM_API_PORT: {{ .Values.config.apiPort | quote }}
   BASE_AGENT_SYSTEM_APP_ENV: {{ .Values.config.appEnv | quote }}
   BASE_AGENT_SYSTEM_NEO4J_URI: {{ .Values.config.neo4jUri | quote }}
+  BASE_AGENT_SYSTEM_FIRECRAWL_API_URL: {{ .Values.config.firecrawlApiUrl | quote }}
   BASE_AGENT_SYSTEM_LLM_MODEL: {{ .Values.config.llmModel | quote }}
-{{- if .Values.firecrawl.enabled }}
-  BASE_AGENT_SYSTEM_FIRECRAWL_API_URL: "http://firecrawl-api:3002"
-{{- end }}
+  BASE_AGENT_SYSTEM_DEBUG_INTERACTIONS_ENABLED: {{ .Values.config.debugInteractionsEnabled | quote }}
+  BASE_AGENT_SYSTEM_OPIK_ENABLED: {{ .Values.config.opik.enabled | quote }}
+  BASE_AGENT_SYSTEM_OPIK_PROJECT_NAME: {{ .Values.config.opik.projectName | quote }}
+  BASE_AGENT_SYSTEM_OPIK_WORKSPACE: {{ .Values.config.opik.workspace | quote }}
+  BASE_AGENT_SYSTEM_OPIK_API_KEY_NAME: {{ .Values.config.opik.apiKeyName | quote }}
+  BASE_AGENT_SYSTEM_OPIK_URL: {{ .Values.config.opik.url | quote }}
+  BASE_AGENT_SYSTEM_OPIK_USE_LOCAL: {{ .Values.config.opik.useLocal | quote }}

@@ -54,55 +54,62 @@ def chat_asset(asset_path: str) -> Response:
 
 @router.post("/api/chat")
 def chat_api(payload: _ChatRequest, request: Request) -> dict[str, Any]:
-    query = _latest_user_text(payload.messages)
-    if not query:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="missing user message text",
-        )
+    with request.app.state.runtime_state.observability_service.start_span(
+        name="POST /api/chat",
+        metadata={"thread_id": payload.threadId or ""},
+    ):
+        query = _latest_user_text(payload.messages)
+        if not query:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="missing user message text",
+            )
 
-    thread_id = payload.threadId or str(uuid4())
-    try:
-        result = run_interaction(
-            workflow_service=request.app.state.runtime_state.workflow_service,
-            thread_id=thread_id,
-            messages=_normalize_messages(payload.messages),
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
+        thread_id = payload.threadId or str(uuid4())
+        try:
+            result = run_interaction(
+                workflow_service=request.app.state.runtime_state.workflow_service,
+                thread_id=thread_id,
+                messages=_normalize_messages(payload.messages),
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
+            ) from exc
 
-    if _prefers_text_stream(request):
-        return StreamingResponse(
-            _stream_answer_text(result["answer"]),
-            media_type="text/plain; charset=utf-8",
-            headers={
-                "x-thread-id": str(result["thread_id"]),
-                "x-citations": json.dumps(result["citations"]),
-                "x-debug": json.dumps(result["debug"]),
-                "x-interaction": json.dumps(result.get("interaction", {})),
-            },
-        )
-
-    return {
-        "id": result["thread_id"],
-        "messages": [
-            {
-                "id": "assistant-message",
-                "role": "assistant",
-                "parts": [{"type": "text", "text": result["answer"]}],
-                "metadata": {
-                    "thread_id": result["thread_id"],
-                    "citations": result["citations"],
-                    "debug": result["debug"],
-                    **(
-                        {"spawn": result.get("interaction", {}).get("spawn")}
-                        if result.get("interaction", {}).get("spawn")
-                        else {}
-                    ),
+        if _prefers_text_stream(request):
+            return StreamingResponse(
+                _stream_answer_text(result["answer"]),
+                media_type="text/plain; charset=utf-8",
+                headers={
+                    "x-thread-id": str(result["thread_id"]),
+                    "x-citations": json.dumps(result["citations"]),
+                    "x-debug": json.dumps(result["debug"]),
+                    "x-interaction": json.dumps(result.get("interaction", {})),
                 },
-            }
-        ],
-    }
+            )
+
+        return {
+            "id": result["thread_id"],
+            "messages": [
+                {
+                    "id": "assistant-message",
+                    "role": "assistant",
+                    "parts": [{"type": "text", "text": result["answer"]}],
+                    "metadata": {
+                        "thread_id": result["thread_id"],
+                        "citations": result["citations"],
+                        "debug": result["debug"],
+                        **(
+                            {"spawn": result.get("interaction", {}).get("spawn")}
+                            if result.get("interaction", {}).get("spawn")
+                            else {}
+                        ),
+                    },
+                }
+            ],
+        }
+
 
 
 def _latest_user_text(messages: list[_ChatMessage]) -> str:

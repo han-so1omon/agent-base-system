@@ -209,12 +209,26 @@ def test_postgres_interaction_repository_creates_schema_and_jsonb_wrapped_events
         metadata={"tools_used": ["search_docs", "search_memory"]},
     )
 
-    assert state.schema_statements == ["interactions", "interaction_events"]
+    assert state.schema_statements == ["interactions", "interaction_events", "interaction_events_artifacts"]
     assert state.last_event_insert_params is not None
     assert isinstance(state.last_interaction_insert_params[8], Jsonb)
     assert state.last_interaction_insert_params[8].obj == {"topic_preview": "Seed doc summary"}
     assert isinstance(state.last_event_insert_params[7], Jsonb)
     assert state.last_event_insert_params[7].obj == {"tools_used": ["search_docs", "search_memory"]}
+
+
+def test_postgres_interaction_repository_initializes_artifacts_column() -> None:
+    from base_agent_system.interactions.repository import PostgresInteractionRepository
+
+    state = _FakeDatabaseState()
+    repository = PostgresInteractionRepository(
+        postgres_uri="postgresql://postgres:postgres@localhost:5432/app",
+        connection_factory=lambda: _FakeConnection(state),
+    )
+
+    repository.initialize_schema()
+
+    assert state.schema_statements == ["interactions", "interaction_events", "interaction_events_artifacts"]
 
 
 def test_postgres_interaction_repository_supports_cursor_pagination() -> None:
@@ -475,6 +489,10 @@ class _FakeCursor:
             self._results = []
             return
         if normalized_query.startswith("create index"):
+            self._results = []
+            return
+        if normalized_query.startswith("alter table interaction_events add column if not exists artifacts jsonb not null default '[]'::jsonb"):
+            self._state.schema_statements.append("interaction_events_artifacts")
             self._results = []
             return
         if normalized_query.startswith("insert into interactions"):

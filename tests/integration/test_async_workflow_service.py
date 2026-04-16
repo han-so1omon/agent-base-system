@@ -76,7 +76,6 @@ class _AsyncWorkflowStub:
                 "used_tools": True,
                 "tool_call_count": 1,
                 "tools_used": ["search_memory"],
-                "steps": [{"type": "tool_call", "tool": "search_memory"}],
-                "intermediate_reasoning": {"kind": "chain_of_thought", "content": "internal"},
+                "steps": [{"type": "action", "tool": "search_memory"}],
             },
         }

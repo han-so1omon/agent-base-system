@@ -1,4 +1,5 @@
 .env
+.env*
 .pytest_cache/
 __pycache__/
 *.pyc
@@ -7,11 +8,16 @@ dist/
 build/
 *.egg-info/
 infra/helm/environments/kind/values.local.yaml
+**/values.local.yaml
 web/.env.local
 web/node_modules/
 web/.next/
 web/out/
+skills/
 skills/worktrunk
+.codex/
+.opencode/
+.github/hooks/entire.json
 .adal/
 .agents/
 .augment/

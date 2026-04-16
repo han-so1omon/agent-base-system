@@ -40,6 +40,24 @@ class InMemoryInteractionRepository:
         metadata: dict[str, object] | AgentRunMetadata | None = None,
     ) -> Interaction:
         created_at = _now_iso()
+        if kind == "agent_run":
+            if metadata and isinstance(metadata, dict):
+                effective_metadata = AgentRunMetadata(
+                    used_tools=metadata.get("used_tools", False),
+                    tool_call_count=metadata.get("tool_call_count", 0),
+                    tools_used=metadata.get("tools_used", []),
+                    steps=metadata.get("steps", []),
+                    spawn=metadata.get("spawn"),
+                )
+            elif metadata:
+                effective_metadata = metadata
+            else:
+                effective_metadata = AgentRunMetadata(
+                    used_tools=False, tool_call_count=0, tools_used=[], steps=[]
+                )
+        else:
+            effective_metadata = metadata or {}
+
         interaction = Interaction(
             id=f"interaction-{uuid4()}",
             thread_id=thread_id,
@@ -51,7 +69,7 @@ class InMemoryInteractionRepository:
             last_event_at=None,
             latest_display_event_id=None,
             child_count=0,
-            metadata=metadata,
+            metadata=effective_metadata,
         )
         self._interactions[interaction.id] = interaction
         if parent_interaction_id and parent_interaction_id in self._interactions:
@@ -60,6 +78,7 @@ class InMemoryInteractionRepository:
                 **{**parent.__dict__, "child_count": parent.child_count + 1}
             )
         return interaction
+
 
     def append_event(
         self,
@@ -103,6 +122,22 @@ class InMemoryInteractionRepository:
             event_type="cancel_requested",
             content="Cancellation requested.",
             status="cancelling",
+        )
+
+    def update_interaction_metadata(
+        self, *, interaction_id: str, metadata: dict[str, object] | AgentRunMetadata
+    ) -> None:
+        interaction = self._interactions[interaction_id]
+        if interaction.kind == "agent_run" and isinstance(metadata, dict):
+            metadata = AgentRunMetadata(
+                used_tools=metadata.get("used_tools", False),
+                tool_call_count=metadata.get("tool_call_count", 0),
+                tools_used=metadata.get("tools_used", []),
+                steps=metadata.get("steps", []),
+                spawn=metadata.get("spawn"),
+            )
+        self._interactions[interaction_id] = Interaction(
+            **{**interaction.__dict__, "metadata": metadata}
         )
 
     def list_threads(self, *, limit: int) -> list[InteractionThreadSummary]:
@@ -204,7 +239,6 @@ class InMemoryInteractionRepository:
             thread_id=thread_id,
             interaction_id=interaction_id,
             steps=list((event.metadata or {}).get("steps", [])) if event else [],
-            reasoning=(event.metadata or {}).get("reasoning") if event else None,
         )
 
     def has_thread(self, *, thread_id: str) -> bool:
@@ -234,7 +268,6 @@ class InMemoryInteractionRepository:
         tool_call_count: int,
         tools_used: list[str],
         steps: list[dict[str, object]],
-        intermediate_reasoning: dict[str, object] | None,
     ) -> Interaction:
         interaction = self.create_interaction(
             thread_id=thread_id,
@@ -257,7 +290,7 @@ class InMemoryInteractionRepository:
             interaction_id=interaction.id,
             event_type="tool_summary",
             status="completed",
-            metadata={"steps": steps, "reasoning": intermediate_reasoning},
+            metadata={"steps": steps},
         )
         return self.get_interaction(interaction_id=interaction.id)
 
@@ -335,6 +368,9 @@ class PostgresInteractionRepository:
                 )
                 cursor.execute(
                     "create index if not exists interaction_events_timeline_idx on interaction_events (interaction_id, created_at desc, id desc)"
+                )
+                cursor.execute(
+                    "alter table interaction_events add column if not exists artifacts jsonb not null default '[]'::jsonb"
                 )
             connection.commit()
 
@@ -619,7 +655,6 @@ class PostgresInteractionRepository:
             thread_id=thread_id,
             interaction_id=interaction_id,
             steps=list((tool_summary.metadata or {}).get("steps", [])) if tool_summary else [],
-            reasoning=(tool_summary.metadata or {}).get("reasoning") if tool_summary else None,
         )
 
     def has_thread(self, *, thread_id: str) -> bool:
@@ -653,7 +688,6 @@ class PostgresInteractionRepository:
         tool_call_count: int,
         tools_used: list[str],
         steps: list[dict[str, object]],
-        intermediate_reasoning: dict[str, object] | None,
     ) -> Interaction:
         interaction = self.create_interaction(
             thread_id=thread_id,
@@ -676,7 +710,7 @@ class PostgresInteractionRepository:
             interaction_id=interaction.id,
             event_type="tool_summary",
             status="completed",
-            metadata={"steps": steps, "reasoning": intermediate_reasoning},
+            metadata={"steps": steps},
         )
         return self.get_interaction(interaction_id=interaction.id)
 
@@ -743,6 +777,8 @@ def _metadata_value(metadata: dict[str, object] | AgentRunMetadata | None) -> di
             "used_tools": metadata.used_tools,
             "tool_call_count": metadata.tool_call_count,
             "tools_used": metadata.tools_used,
+            "steps": metadata.steps,
+            "spawn": metadata.spawn,
         }
     return metadata
 
@@ -759,6 +795,8 @@ def _coerce_interaction_metadata(kind: str, metadata: object) -> AgentRunMetadat
             used_tools=bool(metadata.get("used_tools", False)),
             tool_call_count=int(metadata.get("tool_call_count", 0)),
             tools_used=list(metadata.get("tools_used", [])),
+            steps=list(metadata.get("steps", [])),
+            spawn=metadata.get("spawn"),
         )
     if isinstance(metadata, dict):
         return metadata

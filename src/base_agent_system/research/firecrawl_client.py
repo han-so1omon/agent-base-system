@@ -44,7 +44,7 @@ class FirecrawlClient:
     async def asearch(self, query: str) -> str:
         result = await self._request_json(
             "/v1/search",
-            {"query": query, "pageOptions": {"fetchPageContent": True}},
+            {"query": query, "scrapeOptions": {"formats": ["markdown"]}},
         )
         if not result.get("success"):
             return "Search failed."

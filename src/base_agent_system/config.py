@@ -25,6 +25,12 @@ class Settings:
     api_port: int = 8000
     debug_interactions_enabled: bool = False
     interactions_page_size: int = 20
+    opik_enabled: bool = False
+    opik_project_name: str = "base-agent-system"
+    opik_workspace: str = ""
+    opik_api_key_name: str = "OPIK_API_KEY"
+    opik_url: str = ""
+    opik_use_local: bool = False
     firecrawl_api_url: str = ""
     firecrawl_api_key: str = ""
     arq_redis_uri: str = "redis://localhost:6379/0"
@@ -64,6 +70,12 @@ def load_settings() -> Settings:
         api_port=int(_get_env("BASE_AGENT_SYSTEM_API_PORT", "8000")),
         debug_interactions_enabled=_get_bool_env("BASE_AGENT_SYSTEM_DEBUG_INTERACTIONS_ENABLED", False),
         interactions_page_size=int(_get_env("BASE_AGENT_SYSTEM_INTERACTIONS_PAGE_SIZE", "20")),
+        opik_enabled=_get_bool_env("BASE_AGENT_SYSTEM_OPIK_ENABLED", False),
+        opik_project_name=_get_env("BASE_AGENT_SYSTEM_OPIK_PROJECT_NAME", "base-agent-system"),
+        opik_workspace=_get_env("BASE_AGENT_SYSTEM_OPIK_WORKSPACE", ""),
+        opik_api_key_name=_get_env("BASE_AGENT_SYSTEM_OPIK_API_KEY_NAME", "OPIK_API_KEY"),
+        opik_url=_get_env("BASE_AGENT_SYSTEM_OPIK_URL", ""),
+        opik_use_local=_get_bool_env("BASE_AGENT_SYSTEM_OPIK_USE_LOCAL", False),
         firecrawl_api_url=_get_env("BASE_AGENT_SYSTEM_FIRECRAWL_API_URL", ""),
         firecrawl_api_key=_get_env("BASE_AGENT_SYSTEM_FIRECRAWL_API_KEY", ""),
         arq_redis_uri=_get_env("BASE_AGENT_SYSTEM_ARQ_REDIS_URI", "redis://localhost:6379/0"),

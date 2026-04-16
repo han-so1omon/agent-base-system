@@ -20,11 +20,22 @@ config:
   apiPort: "8000"
   uvicornHost: 0.0.0.0
   neo4jUri: bolt://neo4j:7687
+  firecrawlApiUrl: ""
   llmModel: gpt-4o-mini
+  debugInteractionsEnabled: false
+  opik:
+    enabled: false
+    projectName: base-agent-system
+    workspace: "default"
+    apiKeyName: OPIK_API_KEY
+    url: "https://www.comet.com/opik/api"
+    useLocal: false
 
 secret:
   openaiApiKey: replace-me
   anthropicApiKey: replace-me
+  firecrawlApiKey: replace-me
+  opikApiKey: replace-me
   postgresUri: postgresql://postgres:postgres@postgres-checkpoints:5432/langgraph
   neo4jUser: neo4j
   neo4jPassword: change-me

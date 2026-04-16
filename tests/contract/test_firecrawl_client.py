@@ -34,6 +34,10 @@ async def test_firecrawl_client_async_search_formats_top_results() -> None:
 
     assert "https://a.test" in result
     assert "Content: A" in result
+    client._request_json.assert_awaited_once_with(
+        "/v1/search",
+        {"query": "agent systems", "scrapeOptions": {"formats": ["markdown"]}},
+    )
 
 
 @pytest.mark.asyncio

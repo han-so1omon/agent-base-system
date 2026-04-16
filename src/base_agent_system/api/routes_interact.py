@@ -9,12 +9,17 @@ router = APIRouter()
 
 @router.post("/interact", response_model=InteractResponse)
 def interact(payload: InteractRequest, request: Request) -> InteractResponse:
-    result = run_interaction(
-        workflow_service=request.app.state.runtime_state.workflow_service,
-        thread_id=payload.thread_id,
-        messages=[message.model_dump() for message in payload.messages],
-    )
-    return InteractResponse.model_validate(result)
+    with request.app.state.runtime_state.observability_service.start_span(
+        name="POST /interact",
+        metadata={"thread_id": payload.thread_id},
+    ):
+        result = run_interaction(
+            workflow_service=request.app.state.runtime_state.workflow_service,
+            thread_id=payload.thread_id,
+            messages=[message.model_dump() for message in payload.messages],
+        )
+        return InteractResponse.model_validate(result)
+
 
 
 def run_interaction(*, workflow_service: object | None, thread_id: str, messages: list[dict[str, str]]) -> dict[str, object]:

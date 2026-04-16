@@ -1,5 +1,10 @@
+config:
+  firecrawlApiUrl: https://api.firecrawl.dev
+  opik:
+    url: https://www.comet.com/opik/api
+
 firecrawl:
-  enabled: true
+  enabled: false
 
 installTraefik: true
 gatewayClassName: traefik

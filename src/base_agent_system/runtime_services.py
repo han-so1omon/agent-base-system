@@ -19,6 +19,10 @@ from base_agent_system.memory.graphiti_service import GraphitiMemoryBackend
 from base_agent_system.ingestion.pipeline import ingest_markdown_directory
 from base_agent_system.memory.graphiti_service import GraphitiMemoryService
 from base_agent_system.memory.models import MemoryEpisode
+from base_agent_system.observability import (
+    NoopObservabilityService,
+    ObservabilityService,
+)
 from base_agent_system.retrieval.index_service import RetrievalIndex, build_or_load_index
 from base_agent_system.retrieval.models import RetrievalResult
 from base_agent_system.workflow.graph import build_workflow
@@ -39,12 +43,14 @@ def build_runtime_services(
     memory_service_factory: Callable[..., GraphitiMemoryService] | None = None,
     ingest_service_factory: IngestServiceFactory | None = None,
     workflow_service_factory: WorkflowServiceFactory | None = None,
+    observability_service: ObservabilityService | None = None,
 ) -> tuple[object, object, object]:
     registry = extension_registry or create_default_registry(settings)
     retrieval_builder = retrieval_service_factory or build_retrieval_service
     memory_builder = memory_service_factory or build_memory_service
     ingest_builder = ingest_service_factory or build_ingest_service
     workflow_builder_factory = workflow_service_factory or build_workflow_service
+    obs_service = observability_service or NoopObservabilityService()
 
     retrieval_service, temp_dir = retrieval_builder(settings)
     memory_service = memory_builder(
@@ -71,12 +77,25 @@ def build_runtime_services(
         temp_dir=temp_dir,
         workflow_builder=registry.get_workflow_builder("default"),
         interaction_repository=interaction_repository,
+        observability_service=obs_service,
         topic_preview_generator=(lambda text: "Generated topic") if memory_backend is not None else _build_topic_preview_generator(settings),
     )
     return ingest_service, workflow_service, interaction_repository
 
 
+class _InMemoryGraphitiBackend(GraphitiMemoryBackend):
+    def initialize_indices(self) -> None:
+        pass
+
+    def store_episode(self, episode: Any) -> None:
+        pass
+
+    def search_memory(self, query: str, *, thread_id: str) -> list[Any]:
+        return []
+
+
 def build_retrieval_service(settings: Settings) -> tuple["_MutableRetrievalService", TemporaryDirectory[str]]:
+
     del settings
     temp_dir = TemporaryDirectory(prefix="base-agent-system-index-")
     return _MutableRetrievalService(), temp_dir
@@ -118,6 +137,7 @@ def build_workflow_service(
     temp_dir: TemporaryDirectory[str],
     interaction_repository: object,
     workflow_builder: object = build_workflow,
+    observability_service: ObservabilityService | None = None,
     topic_preview_generator: TopicPreviewGenerator | None = None,
 ) -> "WorkflowService":
     return WorkflowService(
@@ -128,6 +148,7 @@ def build_workflow_service(
         interaction_repository=interaction_repository,
         topic_preview_generator=topic_preview_generator,
         workflow_builder=workflow_builder,
+        observability_service=observability_service,
     )
 
 
@@ -167,11 +188,13 @@ class WorkflowService:
         temp_dir: TemporaryDirectory[str],
         interaction_repository: object,
         workflow_builder: object,
+        observability_service: ObservabilityService | None = None,
         topic_preview_generator: TopicPreviewGenerator | None = None,
     ) -> None:
         self._memory_service = memory_service
         self._temp_dir = temp_dir
         self._interaction_repository = interaction_repository
+        self._observability_service = observability_service or NoopObservabilityService()
         self._topic_preview_generator = topic_preview_generator or (lambda text: "Generated topic")
         self._checkpointer = None
         self._checkpointer_holder = None
@@ -204,36 +227,65 @@ class WorkflowService:
         messages: list[dict[str, str]] | None = None,
         query: str | None = None,
     ) -> dict[str, Any]:
-        normalized_messages = messages or _messages_from_query(query)
-        latest_user_message = _latest_user_message_text(normalized_messages)
-        invoke_kwargs: dict[str, Any] = {}
-        if self._checkpointer is not None:
-            invoke_kwargs["config"] = {"configurable": {"thread_id": thread_id}}
-
-        payload = {
-            "thread_id": thread_id,
-            "messages": normalized_messages,
-            "query": latest_user_message,
-            "interaction_id": interaction_id,
-            "parent_interaction_id": parent_interaction_id,
-        }
-        if hasattr(self._app, "ainvoke"):
-            result = await self._app.ainvoke(payload, **invoke_kwargs)
-        else:
-            result = self._app.invoke(payload, **invoke_kwargs)
-        await self._persist_conversation_turns(
+        with self._observability_service.start_branch_trace(
             thread_id=thread_id,
-            messages=normalized_messages,
-            answer=result["answer"],
-        )
-        self._persist_interactions(
-            thread_id=thread_id,
-            messages=normalized_messages,
-            answer=result["answer"],
-            interaction=result.get("interaction", {}),
-            interaction_id=interaction_id,
+            interaction_id=interaction_id or "",
             parent_interaction_id=parent_interaction_id,
-        )
+        ) as trace:
+            normalized_messages = messages or _messages_from_query(query)
+            latest_user_message = _latest_user_message_text(normalized_messages)
+            invoke_kwargs: dict[str, Any] = {}
+            if self._checkpointer is not None:
+                invoke_kwargs["config"] = {"configurable": {"thread_id": thread_id}}
+
+            payload = {
+                "thread_id": thread_id,
+                "messages": normalized_messages,
+                "query": latest_user_message,
+                "interaction_id": interaction_id,
+                "parent_interaction_id": parent_interaction_id,
+            }
+            with self._observability_service.start_span(
+                name="workflow_invoke",
+                metadata={"thread_id": thread_id, "interaction_id": interaction_id or ""},
+            ):
+                if hasattr(self._app, "ainvoke"):
+                    result = await self._app.ainvoke(payload, **invoke_kwargs)
+                else:
+                    result = self._app.invoke(payload, **invoke_kwargs)
+
+            trace.update_metadata(
+                {
+                    "used_tools": result.get("interaction", {}).get("used_tools", False),
+                    "tool_call_count": result.get("interaction", {}).get(
+                        "tool_call_count", 0
+                    ),
+                    "citation_count": len(result.get("citations", [])),
+                }
+            )
+
+            with self._observability_service.start_span(
+                name="persist_conversation_turns",
+                metadata={"thread_id": thread_id},
+            ):
+                await self._persist_conversation_turns(
+                    thread_id=thread_id,
+                    messages=normalized_messages,
+                    answer=result["answer"],
+                )
+            with self._observability_service.start_span(
+                name="persist_interactions",
+                metadata={"thread_id": thread_id, "interaction_id": interaction_id or ""},
+            ):
+                self._persist_interactions(
+                    thread_id=thread_id,
+                    messages=normalized_messages,
+                    answer=result["answer"],
+                    interaction=result.get("interaction", {}),
+                    interaction_id=interaction_id,
+                    parent_interaction_id=parent_interaction_id,
+                )
+        self._observability_service.flush()
         return {
             "thread_id": result["thread_id"],
             "answer": result["answer"],
@@ -258,43 +310,16 @@ class WorkflowService:
     ) -> None:
         latest_user_message = _latest_user_message_text(messages)
         if latest_user_message:
-            await self._store_memory_episode(
-                MemoryEpisode(
-                    thread_id=thread_id,
-                    actor="user",
-                    content=latest_user_message,
-                )
-            )
-        if answer.strip():
-            await self._store_memory_episode(
-                MemoryEpisode(
-                    thread_id=thread_id,
-                    actor="assistant",
-                    content=answer,
-                )
-            )
-
-    async def _store_memory_episode(self, episode: MemoryEpisode) -> None:
-        if hasattr(self._memory_service, "astore_episode"):
-            await self._memory_service.astore_episode(episode)
-            return
-        self._memory_service.store_episode(episode)
-
-    def _persist_interactions(
-        self,
-        *,
-        thread_id: str,
-        messages: list[dict[str, str]],
-        answer: str,
-        interaction: dict[str, Any],
-        interaction_id: str | None,
-        parent_interaction_id: str | None,
-    ) -> None:
-        latest_user_message = _latest_user_message_text(messages)
-        if latest_user_message:
             topic_preview = None
-            if hasattr(self._interaction_repository, "has_thread") and not self._interaction_repository.has_thread(thread_id=thread_id):
-                topic_preview = _require_topic_preview(self._topic_preview_generator, latest_user_message)
+            is_new_thread = not self._interaction_repository.has_thread(thread_id=thread_id)
+            if is_new_thread:
+                try:
+                    topic_preview = _require_topic_preview(self._topic_preview_generator, latest_user_message)
+                except Exception as exc:
+                    import logging
+                    logging.getLogger(__name__).warning("failed to generate topic preview: %s", exc)
+                    raise ValueError(f"Topic preview generation failed: {exc}") from exc
+
             if hasattr(self._interaction_repository, "create_interaction") and hasattr(self._interaction_repository, "append_event"):
                 user_interaction = self._interaction_repository.create_interaction(
                     thread_id=thread_id,
@@ -315,6 +340,32 @@ class WorkflowService:
                     content=latest_user_message,
                     topic_preview=topic_preview,
                 )
+
+            await self._store_memory_episode(
+                MemoryEpisode(thread_id=thread_id, actor="user", content=latest_user_message)
+            )
+
+        if answer.strip():
+            await self._store_memory_episode(
+                MemoryEpisode(thread_id=thread_id, actor="assistant", content=answer)
+            )
+
+    async def _store_memory_episode(self, episode: MemoryEpisode) -> None:
+        if hasattr(self._memory_service, "astore_episode"):
+            await self._memory_service.astore_episode(episode)
+        else:
+            self._memory_service.store_episode(episode)
+
+    def _persist_interactions(
+        self,
+        *,
+        thread_id: str,
+        messages: list[dict[str, str]],
+        answer: str,
+        interaction: dict[str, Any],
+        interaction_id: str | None = None,
+        parent_interaction_id: str | None = None,
+    ) -> None:
         if answer.strip():
             if hasattr(self._interaction_repository, "create_interaction") and hasattr(self._interaction_repository, "append_event"):
                 agent_interaction_id = interaction_id
@@ -328,10 +379,25 @@ class WorkflowService:
                             "used_tools": bool(interaction.get("used_tools", False)),
                             "tool_call_count": int(interaction.get("tool_call_count", 0)),
                             "tools_used": list(interaction.get("tools_used", [])),
+                            "steps": list(interaction.get("steps", [])),
                             **({"spawn": interaction["spawn"]} if "spawn" in interaction else {}),
                         },
                     )
                     agent_interaction_id = agent_interaction.id
+                else:
+                    # Update existing interaction metadata if we have it
+                    if hasattr(self._interaction_repository, "update_interaction_metadata"):
+                         self._interaction_repository.update_interaction_metadata(
+                             interaction_id=agent_interaction_id,
+                             metadata={
+                                 "used_tools": bool(interaction.get("used_tools", False)),
+                                 "tool_call_count": int(interaction.get("tool_call_count", 0)),
+                                 "tools_used": list(interaction.get("tools_used", [])),
+                                 "steps": list(interaction.get("steps", [])),
+                                 **({"spawn": interaction["spawn"]} if "spawn" in interaction else {}),
+                             }
+                         )
+
                 self._interaction_repository.append_event(
                     interaction_id=agent_interaction_id,
                     event_type="message_authored",
@@ -344,10 +410,7 @@ class WorkflowService:
                     interaction_id=agent_interaction_id,
                     event_type="tool_summary",
                     status="completed",
-                    metadata={
-                        "steps": list(interaction.get("steps", [])),
-                        "reasoning": interaction.get("intermediate_reasoning"),
-                    },
+                    metadata={"steps": list(interaction.get("steps", []))},
                 )
             else:
                 self._interaction_repository.store_agent_run_interaction(
@@ -356,7 +419,6 @@ class WorkflowService:
                     tool_call_count=int(interaction.get("tool_call_count", 0)),
                     tools_used=list(interaction.get("tools_used", [])),
                     steps=list(interaction.get("steps", [])),
-                    intermediate_reasoning=interaction.get("intermediate_reasoning"),
                 )
 
 
@@ -404,118 +466,34 @@ def _normalize_topic_preview(value: str, *, source_text: str) -> str:
     if not words:
         raise ValueError("topic preview generation failed: empty output")
     if not 2 <= len(words) <= 5:
-        raise ValueError("topic preview generation failed: output must contain 2 to 5 words")
-
-    normalized_preview = " ".join(words)
-    source_words = re.findall(r"[A-Za-z0-9']+", source_text.strip())
-    opening_words = " ".join(source_words[: len(words)])
-    if opening_words and normalized_preview.casefold() == opening_words.casefold():
-        raise ValueError("topic preview generation failed: output repeats opening words")
-    return normalized_preview
+        raise ValueError("topic preview generation failed: topic preview must be 2 to 5 words")
+    source_words = re.findall(r"[A-Za-z0-9']+", source_text.lower())
+    opening_words = source_words[: len(words)]
+    if opening_words and [word.lower() for word in words] == opening_words:
+        raise ValueError("topic preview generation failed: topic preview repeats opening words")
+    return " ".join(words)
 
 
-def _extract_llm_text(content: object) -> str:
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts = []
-        for part in content:
-            if isinstance(part, dict):
-                parts.append(str(part.get("text", "")))
-            else:
-                parts.append(str(getattr(part, "text", "")))
-        return " ".join(parts).strip()
-    return str(content)
-
-
-class _InMemoryGraphitiBackend:
-    def __init__(self) -> None:
-        self._initialized = False
-        self._episodes: list[MemoryEpisode] = []
-
-    def initialize_indices(self) -> None:
-        self._initialized = True
-
-    def store_episode(self, episode: MemoryEpisode) -> None:
-        self._require_initialized()
-        self._episodes.append(episode)
-
-    def search_memory(
-        self,
-        query: str,
-        *,
-        thread_id: str,
-        limit: int,
-    ) -> list[dict[str, Any]]:
-        self._require_initialized()
-        query_terms = set(_tokenize(query))
-        matches: list[dict[str, Any]] = []
-        for episode in self._episodes:
-            if episode.thread_id != thread_id:
-                continue
-            episode_terms = set(_tokenize(episode.content))
-            overlap = query_terms.intersection(episode_terms)
-            score = float(len(overlap))
-            if score <= 0:
-                continue
-            matches.append(
-                {
-                    "thread_id": episode.thread_id,
-                    "actor": episode.actor,
-                    "content": episode.content,
-                    "score": score,
-                }
-            )
-        matches.sort(key=lambda item: item["score"], reverse=True)
-        return matches[:limit]
-
-    def close(self) -> None:
-        self._episodes.clear()
-        self._initialized = False
-
-    def _require_initialized(self) -> None:
-        if not self._initialized:
-            raise RuntimeError("memory backend must be initialized before use")
+def _messages_from_query(query: str | None) -> list[dict[str, str]]:
+    if not query:
+        return []
+    return [{"role": "user", "content": query}]
 
 
 def _latest_user_message_text(messages: list[dict[str, str]]) -> str:
     for message in reversed(messages):
-        if message.get("role") != "user":
-            continue
-        content = message.get("content", "").strip()
-        if content:
-            return content
+        if message.get("role") == "user":
+            return message.get("content", "")
     return ""
 
 
-def _messages_from_query(query: str | None) -> list[dict[str, str]]:
-    if not query or not query.strip():
-        return []
-    return [{"role": "user", "content": query.strip()}]
-
-def _tokenize(text: str) -> set[str]:
-    return {
-        token
-        for token in re.findall(r"[a-z0-9]+", text.lower())
-        if token not in _STOPWORDS and len(token) > 2
-    }
-
-
-_STOPWORDS = {
-    "the",
-    "and",
-    "for",
-    "with",
-    "that",
-    "this",
-    "what",
-    "does",
-    "did",
-    "you",
-    "your",
-    "earlier",
-    "mention",
-    "mentioned",
-    "have",
-    "from",
-}
+def _extract_llm_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            part.get("text", "")
+            for part in content
+            if isinstance(part, dict) and part.get("type") == "text"
+        )
+    return str(content)

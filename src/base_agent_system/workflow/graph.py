@@ -7,7 +7,7 @@ import os
 from typing import Any, Callable
 
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.prebuilt import create_react_agent
 from langgraph.prebuilt.chat_agent_executor import AgentState
 
@@ -75,24 +75,28 @@ class AgentWorkflowApp:
                     "used_tools": False,
                     "tool_call_count": 0,
                     "tools_used": [],
-                    "steps": [],
-                    "intermediate_reasoning": None,
+                    "steps": _synthesize_steps(answer=answer, tools_used=[]),
                 },
             }
 
         result = self._app.invoke({"messages": messages, "thread_id": thread_id}, **invoke_kwargs)
+        answer = _extract_answer(result.get("messages", []))
+        tool_messages = _extract_tool_messages(result.get("messages", []))
+        if tool_messages:
+            debug["tool_calls"] += len(tool_messages)
+            tools_used.extend(tool_messages)
+        tools_used = list(dict.fromkeys(tools_used))
         interaction = {
             "used_tools": debug["tool_calls"] > 0,
             "tool_call_count": debug["tool_calls"],
             "tools_used": tools_used,
-            "steps": [],
-            "intermediate_reasoning": result.get("intermediate_reasoning"),
+            "steps": _synthesize_steps(answer=answer, tools_used=tools_used),
         }
         if "spawn" in result:
             interaction["spawn"] = result["spawn"]
         return {
             "thread_id": thread_id,
-            "answer": _extract_answer(result.get("messages", [])),
+            "answer": answer,
             "citations": citations,
             "debug": debug,
             "interaction": interaction,
@@ -191,6 +195,13 @@ def _should_bypass_tools(messages: list[Any]) -> bool:
         "preferred deployment target",
         "what is my",
         "our thread",
+        "search ",
+        "look up",
+        "find online",
+        "on the web",
+        "latest",
+        ".dev",
+        "documentation updates",
     )
     return not any(signal in normalized for signal in retrieval_signals)
 
@@ -254,6 +265,30 @@ def _extract_answer(messages: list[Any]) -> str:
                     if isinstance(part, dict) and part.get("type") == "text"
                 )
     return ""
+
+
+def _extract_tool_messages(messages: list[Any]) -> list[str]:
+    tool_names: list[str] = []
+    for message in messages:
+        if isinstance(message, ToolMessage):
+            tool_name = getattr(message, "name", "")
+            if tool_name:
+                tool_names.append(str(tool_name))
+    return tool_names
+
+
+def _synthesize_steps(*, answer: str, tools_used: list[str]) -> list[dict[str, str]]:
+    if tools_used:
+        steps: list[dict[str, str]] = [
+            {"type": "thought", "content": "Decide whether retrieval or memory tools are needed."},
+        ]
+        steps.extend({"type": "action", "tool": tool_name} for tool_name in tools_used)
+        steps.append({"type": "final", "content": answer})
+        return steps
+    return [
+        {"type": "thought", "content": "Respond directly without tools."},
+        {"type": "final", "content": answer},
+    ]
 
 
 def _build_synthetic_workflow(

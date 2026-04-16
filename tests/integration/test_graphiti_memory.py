@@ -215,6 +215,71 @@ async def test_live_graphiti_backend_exposes_async_surface() -> None:
     ]
 
 
+@pytest.mark.asyncio
+async def test_live_graphiti_backend_async_methods_run_on_dedicated_runner() -> None:
+    observed: list[str] = []
+
+    class _TrackingRunner:
+        def run(self, coroutine):
+            raise AssertionError("sync runner path should not be used in async test")
+
+        async def arun(self, coroutine):
+            observed.append(type(coroutine).__name__)
+            return await coroutine
+
+        def close(self) -> None:
+            return None
+
+    class _FakeClient:
+        async def build_indices_and_constraints(self) -> None:
+            observed.append("build")
+
+        async def add_episode(self, **kwargs) -> None:
+            observed.append(f"episode:{kwargs['group_id']}")
+
+        async def search(self, query: str, **kwargs):
+            observed.append(f"search:{query}")
+            return [
+                SimpleNamespace(
+                    fact="Remembered preference",
+                    source="user",
+                    fact_embedding_similarity=0.9,
+                )
+            ]
+
+        async def close(self) -> None:
+            observed.append("close")
+
+    backend = __import__(
+        "base_agent_system.memory.graphiti_service",
+        fromlist=["_LiveGraphitiBackend"],
+    )._LiveGraphitiBackend(
+        settings=_settings(),
+        provider_api_key="test-key",
+        graphiti_class=lambda **kwargs: None,
+        episode_type="message",
+        search_recipe=object(),
+    )
+    backend._client = _FakeClient()
+    backend._runner = _TrackingRunner()
+
+    await backend.ainitialize_indices()
+    await backend.astore_episode(
+        MemoryEpisode(thread_id="thread-runner", actor="user", content="Preferred deployment target")
+    )
+    results = await backend.asearch_memory("preferred deployment target", thread_id="thread-runner", limit=2)
+
+    assert len(results) == 1
+    assert observed == [
+        "coroutine",
+        "build",
+        "coroutine",
+        "episode:thread-runner",
+        "coroutine",
+        "search:preferred deployment target",
+    ]
+
+
 def test_graphiti_memory_service_stores_and_returns_relevant_memory_when_backend_is_available() -> None:
     settings = _settings()
     service = GraphitiMemoryService(
@@ -341,7 +406,7 @@ def test_workflow_service_persists_user_and_assistant_turns_after_agent_run(
     assert page.items[-1].metadata is not None
     assert page.items[-1].metadata.tool_call_count == 2
     assert debug is not None
-    assert debug.reasoning == {"kind": "chain_of_thought", "content": "internal"}
+    assert debug.steps == [{"type": "action", "tool": "search_memory"}]
 
 
 def test_workflow_service_generates_topic_preview_once_from_first_user_message(
@@ -362,7 +427,6 @@ def test_workflow_service_generates_topic_preview_once_from_first_user_message(
                     "tool_call_count": 0,
                     "tools_used": [],
                     "steps": [],
-                    "intermediate_reasoning": {"kind": "chain_of_thought", "content": "internal"},
                 },
             }
 
@@ -421,7 +485,6 @@ def test_workflow_service_fails_new_thread_when_topic_preview_generation_fails(
                     "tool_call_count": 0,
                     "tools_used": [],
                     "steps": [],
-                    "intermediate_reasoning": {"kind": "chain_of_thought", "content": "internal"},
                 },
             }
 
@@ -585,7 +648,6 @@ class _WorkflowStub:
                 "used_tools": True,
                 "tool_call_count": 2,
                 "tools_used": ["search_memory", "search_docs"],
-                "steps": [{"type": "tool_call", "tool": "search_memory"}],
-                "intermediate_reasoning": {"kind": "chain_of_thought", "content": "internal"},
+                "steps": [{"type": "action", "tool": "search_memory"}],
             },
         }
