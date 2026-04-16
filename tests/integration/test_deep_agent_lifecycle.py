@@ -10,6 +10,7 @@ from base_agent_system.artifacts.storage import LocalArtifactStorage
 from base_agent_system.config import Settings
 from base_agent_system.interactions.repository import InMemoryInteractionRepository
 from base_agent_system.memory.graphiti_service import GraphitiMemoryService
+from base_agent_system.observability import NoopObservabilityService
 from base_agent_system.runtime_services import WorkflowService, _InMemoryGraphitiBackend
 from base_agent_system.workers.tasks import run_interaction_branch
 
@@ -70,7 +71,13 @@ async def test_delegated_interaction_lifecycle_projects_parent_summary_and_artif
             interaction_repository=repository,
             workflow_builder=lambda **kwargs: _LifecycleWorkflowStub(storage),
         )
-        context = SimpleNamespace(runtime_state=SimpleNamespace(interaction_repository=repository, workflow_service=workflow_service))
+        context = SimpleNamespace(
+            runtime_state=SimpleNamespace(
+                interaction_repository=repository,
+                workflow_service=workflow_service,
+                observability_service=NoopObservabilityService(),
+            )
+        )
 
         result = await run_interaction_branch(
             context,
@@ -113,7 +120,6 @@ class _LifecycleWorkflowStub:
                 "tool_call_count": 0,
                 "tools_used": [],
                 "steps": [],
-                "intermediate_reasoning": None,
                 "artifacts": [artifact],
             },
         }

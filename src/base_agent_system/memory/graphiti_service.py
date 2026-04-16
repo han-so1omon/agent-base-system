@@ -230,7 +230,7 @@ class _LiveGraphitiBackend:
         self._runner.run(self._client.build_indices_and_constraints())
 
     async def ainitialize_indices(self) -> None:
-        await self._client.build_indices_and_constraints()
+        await self._runner.arun(self._client.build_indices_and_constraints())
 
     def store_episode(self, episode: MemoryEpisode) -> None:
         self._runner.run(
@@ -245,13 +245,15 @@ class _LiveGraphitiBackend:
         )
 
     async def astore_episode(self, episode: MemoryEpisode) -> None:
-        await self._client.add_episode(
-            name=f"{episode.actor}-{episode.thread_id}",
-            episode_body=episode.content,
-            source_description="base-agent-system-memory",
-            reference_time=datetime.now(timezone.utc),
-            source=self._episode_type,
-            group_id=episode.thread_id,
+        await self._runner.arun(
+            self._client.add_episode(
+                name=f"{episode.actor}-{episode.thread_id}",
+                episode_body=episode.content,
+                source_description="base-agent-system-memory",
+                reference_time=datetime.now(timezone.utc),
+                source=self._episode_type,
+                group_id=episode.thread_id,
+            )
         )
 
     def search_memory(
@@ -293,10 +295,12 @@ class _LiveGraphitiBackend:
         thread_id: str,
         limit: int,
     ) -> list[dict[str, Any]]:
-        search_results = await self._client.search(
-            query,
-            group_ids=[thread_id],
-            num_results=limit,
+        search_results = await self._runner.arun(
+            self._client.search(
+                query,
+                group_ids=[thread_id],
+                num_results=limit,
+            )
         )
 
         coerced_results: list[dict[str, Any]] = []
@@ -330,6 +334,10 @@ class _AsyncRunner:
     def run(self, coroutine: Any) -> Any:
         future = asyncio.run_coroutine_threadsafe(coroutine, self._loop)
         return future.result()
+
+    async def arun(self, coroutine: Any) -> Any:
+        future = asyncio.run_coroutine_threadsafe(coroutine, self._loop)
+        return await asyncio.wrap_future(future)
 
     def close(self) -> None:
         self._loop.call_soon_threadsafe(self._loop.stop)

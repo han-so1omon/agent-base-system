@@ -52,6 +52,7 @@ def test_container_files_define_runtime_and_cli_contract() -> None:
     assert '"langchain-openai"' in pyproject_text
     assert "psycopg[binary]" in pyproject_text
     assert "BASE_AGENT_SYSTEM_LLM_MODEL" in config_text
+    assert "opik_enabled" in config_text
     assert "BASE_AGENT_SYSTEM_AI_GATEWAY_API_KEY_NAME" not in config_text
     assert "BASE_AGENT_SYSTEM_AI_GATEWAY_BASE_URL" not in config_text
 

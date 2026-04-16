@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from base_agent_system.interactions.repository import InMemoryInteractionRepository
+from base_agent_system.observability import NoopObservabilityService
 
 
 @pytest.mark.asyncio
@@ -21,7 +22,13 @@ async def test_arq_worker_runs_child_interaction_branch_and_projects_parent_summ
     )
 
     workflow_service = _WorkerWorkflowStub()
-    context = SimpleNamespace(runtime_state=SimpleNamespace(interaction_repository=repository, workflow_service=workflow_service))
+    context = SimpleNamespace(
+        runtime_state=SimpleNamespace(
+            interaction_repository=repository,
+            workflow_service=workflow_service,
+            observability_service=NoopObservabilityService(),
+        )
+    )
 
     await run_interaction_branch(
         context,
@@ -51,6 +58,5 @@ class _WorkerWorkflowStub:
                 "tool_call_count": 0,
                 "tools_used": [],
                 "steps": [],
-                "intermediate_reasoning": None,
             },
         }

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -10,6 +10,9 @@ class AgentRunMetadata:
     used_tools: bool
     tool_call_count: int
     tools_used: list[str]
+    steps: list[dict[str, object]] = field(default_factory=list)
+    spawn: dict[str, object] | None = None
+
 
 
 @dataclass(frozen=True)
@@ -77,4 +80,3 @@ class DebugInteractionDetail:
     thread_id: str
     interaction_id: str
     steps: list[dict[str, object]]
-    reasoning: dict[str, object] | None

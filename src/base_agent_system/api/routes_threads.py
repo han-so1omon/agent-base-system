@@ -104,7 +104,11 @@ def get_debug_interaction(thread_id: str, interaction_id: str, request: Request)
     detail = repository.get_debug_interaction(thread_id=thread_id, interaction_id=interaction_id)
     if detail is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="interaction not found")
-    return DebugInteractionPayload.model_validate(detail)
+    return DebugInteractionPayload(
+        thread_id=detail.thread_id,
+        interaction_id=detail.interaction_id,
+        steps=detail.steps,
+    )
 
 
 def _get_interaction_repository(request: Request):

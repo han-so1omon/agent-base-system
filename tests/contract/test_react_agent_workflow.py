@@ -79,7 +79,6 @@ def test_agent_workflow_app_returns_structured_interaction_metadata() -> None:
             del kwargs
             return {
                 "messages": [],
-                "intermediate_reasoning": {"kind": "chain_of_thought", "content": "internal"},
             }
 
     from base_agent_system.workflow.graph import AgentWorkflowApp
@@ -97,8 +96,10 @@ def test_agent_workflow_app_returns_structured_interaction_metadata() -> None:
         "used_tools": False,
         "tool_call_count": 0,
         "tools_used": [],
-        "steps": [],
-        "intermediate_reasoning": {"kind": "chain_of_thought", "content": "internal"},
+        "steps": [
+            {"type": "thought", "content": "Respond directly without tools."},
+            {"type": "final", "content": ""},
+        ],
     }
 
 
@@ -108,7 +109,6 @@ def test_agent_workflow_app_returns_spawn_metadata_when_agent_delegates() -> Non
             del payload, kwargs
             return {
                 "messages": [],
-                "intermediate_reasoning": {"kind": "chain_of_thought", "content": "delegate"},
                 "spawn": {
                     "mode": "deep_agent",
                     "label": "Deep Agent",
@@ -139,3 +139,32 @@ def test_agent_workflow_app_returns_spawn_metadata_when_agent_delegates() -> Non
         "label": "Deep Agent",
         "plan": ["search broadly", "summarize findings"],
     }
+
+
+def test_agent_workflow_app_synthesizes_action_steps_from_used_tools() -> None:
+    tool_context: dict[str, object] = {}
+
+    class _StubApp:
+        def invoke(self, payload: dict[str, object], **kwargs) -> dict[str, object]:
+            del payload, kwargs
+            tool_context["docs_result_handler"]([])
+            return {
+                "messages": ["ignored"],
+            }
+
+    from base_agent_system.workflow.graph import AgentWorkflowApp
+
+    app = AgentWorkflowApp(_StubApp(), model=None, tool_context=tool_context)
+
+    result = app.invoke(
+        {
+            "thread_id": "thread-123",
+            "messages": [{"role": "user", "content": "What does the seed doc say?"}],
+        }
+    )
+
+    assert result["interaction"]["steps"] == [
+        {"type": "thought", "content": "Decide whether retrieval or memory tools are needed."},
+        {"type": "action", "tool": "search_docs"},
+        {"type": "final", "content": ""},
+    ]

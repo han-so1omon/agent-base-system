@@ -1,7 +1,7 @@
 'use client';
 
 import { useChat } from '@ai-sdk/react';
-import { FormEvent, UIEvent, useEffect, useRef, useState } from 'react';
+import { FormEvent, UIEvent, useEffect, useMemo, useRef, useState } from 'react';
 
 type Citation = {
   source: string;
@@ -53,6 +53,31 @@ const INITIAL_INTERACTION_PAGE: InteractionPage = {
   messages: [],
   has_more: false,
   next_before: null,
+};
+const threadActionButtonStyle = {
+  border: '1px solid rgba(240, 201, 107, 0.35)',
+  background: 'rgba(255,255,255,0.02)',
+  color: 'var(--text)',
+  padding: '12px 14px',
+  textAlign: 'left' as const,
+  cursor: 'pointer',
+};
+const threadCardStyle = {
+  border: '1px solid var(--line)',
+  color: 'var(--text)',
+  padding: '14px 16px',
+  textAlign: 'left' as const,
+  cursor: 'pointer',
+};
+const paginationNoticeStyle = {
+  border: '1px dashed var(--line)',
+  padding: '12px 14px',
+  color: 'var(--muted)',
+  textAlign: 'center' as const,
+};
+const loadingNoticeStyle = {
+  ...paginationNoticeStyle,
+  color: 'var(--accent)',
 };
 
 export default function Page() {
@@ -451,6 +476,31 @@ function mapInteractionToChatMessage(message: InteractionMessage): ChatMessage {
   };
 }
 
+function ToolBadge({ metadata }: { metadata: AgentRunMetadata }) {
+  return (
+    <div
+      style={{
+        border: '1px solid rgba(240, 201, 107, 0.35)',
+        color: 'var(--accent)',
+        fontSize: 11,
+        padding: '4px 8px',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {metadata.tool_call_count} tool{metadata.tool_call_count === 1 ? '' : 's'}
+    </div>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: number }) {
+  return (
+    <div style={{ border: '1px solid var(--line)', padding: 12, background: 'rgba(255,255,255,0.02)' }}>
+      <div style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 6 }}>{label}</div>
+      <div style={{ color: 'var(--text)', fontSize: 24 }}>{value}</div>
+    </div>
+  );
+}
+
 function createThreadId(): string {
   return `thread-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -486,4 +536,3 @@ function parseJsonHeader<T>(value: string | null): T | undefined {
     return undefined;
   }
 }
-

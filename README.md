@@ -76,3 +76,14 @@ npm run dev
 ```
 
 Set `BASE_AGENT_SYSTEM_API_URL` in `web/.env.local` to your FastAPI base URL, for example `http://127.0.0.1:8000`.
+
+## Deployment
+
+### Kubernetes (kind)
+
+The system is configured for cloud Firecrawl and Opik tracing in the `kind` environment.
+
+1. **Firecrawl Cloud**: Configure `firecrawlApiUrl` and `firecrawlApiKey` in your local values.
+2. **Opik Cloud**: Set `opik.enabled: true` and provide `opikApiKey` plus optional project/workspace names.
+
+See `scripts/bootstrap-kind.sh` for one-shot cluster bootstrap.

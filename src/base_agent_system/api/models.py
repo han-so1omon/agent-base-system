@@ -95,7 +95,6 @@ class DebugInteractionPayload(BaseModel):
     thread_id: str
     interaction_id: str
     steps: list[dict[str, object]]
-    reasoning: dict[str, object] | None
 
 
 class IngestRequest(BaseModel):

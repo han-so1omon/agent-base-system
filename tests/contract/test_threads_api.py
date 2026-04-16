@@ -3,7 +3,9 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 import pytest
 
+from base_agent_system.interactions.models import DebugInteractionDetail
 from base_agent_system.interactions.repository import InMemoryInteractionRepository
+from base_agent_system.dependencies import get_settings
 from base_agent_system.runtime_services import _InMemoryGraphitiBackend
 
 
@@ -137,6 +139,24 @@ def test_debug_interaction_endpoint_is_disabled_by_default(monkeypatch: pytest.M
         response = client.get("/debug/threads/thread-123/interactions/interaction-agent-1")
 
     assert response.status_code == 404
+
+
+def test_debug_interaction_endpoint_returns_debug_steps_when_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    _base_env(monkeypatch)
+    monkeypatch.setenv("BASE_AGENT_SYSTEM_DEBUG_INTERACTIONS_ENABLED", "true")
+    get_settings.cache_clear()
+    app = _create_test_app(monkeypatch)
+
+    with TestClient(app) as client:
+        client.app.state.runtime_state.interaction_repository = _DebugDetailRepository()
+        response = client.get("/debug/threads/thread-123/interactions/interaction-agent-1")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "thread_id": "thread-123",
+        "interaction_id": "interaction-agent-1",
+        "steps": [{"type": "thought", "content": "Need docs first."}],
+    }
 
 
 def _create_test_app(monkeypatch: pytest.MonkeyPatch):
@@ -290,5 +310,13 @@ class _StubInteractionRepository:
             "thread_id": thread_id,
             "interaction_id": interaction_id,
             "steps": [],
-            "reasoning": {"kind": "chain_of_thought", "content": "internal"},
         }
+
+
+class _DebugDetailRepository(_StubInteractionRepository):
+    def get_debug_interaction(self, *, thread_id: str, interaction_id: str):
+        return DebugInteractionDetail(
+            thread_id=thread_id,
+            interaction_id=interaction_id,
+            steps=[{"type": "thought", "content": "Need docs first."}],
+        )
